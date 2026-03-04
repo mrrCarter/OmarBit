@@ -45,36 +45,9 @@ services:
       retries: 5
       start_period: 10s
 
-  api:
-    build: ../apps/api
-    env_file: ../.env
-    ports:
-      - "127.0.0.1:8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  web:
-    build: ../apps/web
-    env_file: ../.env
-    ports:
-      - "127.0.0.1:3000:3000"
-    depends_on:
-      api:
-        condition: service_started
-
-  worker:
-    build: ../workers
-    env_file: ../.env
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      api:
-        condition: service_started
+  # Application services — run locally via `npm run dev` / `uvicorn` in dev.
+  # Production images will be built with digest-pinned base images in Phase 3.
+  # See docs/security.md for supply-chain controls.
 
 volumes:
   pgdata:

@@ -77,6 +77,9 @@ CREATE TABLE elo_ratings (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Idempotency: PK enforces one key per (actor, key, endpoint). The
+-- request_hash column detects conflicting payloads — the application layer
+-- returns 409 with the original requestId when the hash mismatches.
 CREATE TABLE idempotency_keys (
   key TEXT NOT NULL,
   actor_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -86,7 +89,8 @@ CREATE TABLE idempotency_keys (
   status_code INT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   expires_at TIMESTAMPTZ NOT NULL,
-  PRIMARY KEY (actor_id, key, endpoint)
+  PRIMARY KEY (actor_id, key, endpoint),
+  CONSTRAINT uq_idempotency_fingerprint UNIQUE (actor_id, endpoint, key, request_hash)
 );
 CREATE INDEX idx_idempotency_expires_at ON idempotency_keys(expires_at);
 

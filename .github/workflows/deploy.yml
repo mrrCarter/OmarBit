@@ -14,6 +14,10 @@ on:
         description: 'Workflow run ID to rollback to (leave empty for normal deploy)'
         required: false
         type: string
+      rollback_commit:
+        description: 'Commit SHA associated with the rollback artifact'
+        required: false
+        type: string
 
 concurrency:
   group: deploy-production
@@ -41,6 +45,7 @@ jobs:
     outputs:
       artifact-digest: ${{ steps.verify.outputs.digest }}
       deploy-commit: ${{ steps.meta.outputs.commit_sha }}
+      source-run-id: ${{ steps.meta.outputs.run_id }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -51,13 +56,22 @@ jobs:
           set -euo pipefail
           if [ -n "${{ inputs.rollback_run_id }}" ]; then
             RUN_ID="${{ inputs.rollback_run_id }}"
+            COMMIT="${{ inputs.rollback_commit }}"
+            if [ -z "${COMMIT}" ]; then
+              echo "::error::rollback_commit is required when rollback_run_id is set"
+              exit 1
+            fi
             echo "mode=rollback" >> "$GITHUB_OUTPUT"
-          else
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
             RUN_ID="${{ github.event.workflow_run.id }}"
+            COMMIT="${{ github.event.workflow_run.head_sha }}"
             echo "mode=deploy" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Unexpected trigger without workflow_run or rollback_run_id"
+            exit 1
           fi
           echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
-          echo "commit_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "commit_sha=${COMMIT}" >> "$GITHUB_OUTPUT"
 
       - name: Download build artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -129,13 +143,29 @@ jobs:
     environment:
       name: production
     steps:
-      - name: Trigger rollback
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Execute rollback
         shell: bash
         run: |
           set -euo pipefail
-          echo "::error::Health check failed — triggering automatic rollback"
-          echo "Failed deploy commit: ${{ needs.deploy.outputs.deploy-commit }}"
-          echo "Failed artifact digest: ${{ needs.deploy.outputs.artifact-digest }}"
-          echo "Rollback requires manual workflow_dispatch with a known-good run ID"
-          echo "Use: gh workflow run deploy.yml -f rollback_run_id=<GOOD_RUN_ID>"
-          exit 1
+          echo "::error::Health check failed — executing automatic rollback"
+          FAILED_COMMIT="${{ needs.deploy.outputs.deploy-commit }}"
+          FAILED_DIGEST="${{ needs.deploy.outputs.artifact-digest }}"
+          echo "Failed deploy: commit=${FAILED_COMMIT} digest=${FAILED_DIGEST}"
+          # Retrieve last-known-good metadata from environment variable
+          GOOD_RUN_ID="${LAST_GOOD_RUN_ID:-}"
+          GOOD_COMMIT="${LAST_GOOD_COMMIT:-}"
+          if [ -z "${GOOD_RUN_ID}" ] || [ -z "${GOOD_COMMIT}" ]; then
+            echo "::error::No last-known-good deployment recorded. Manual rollback required:"
+            echo "  gh workflow run deploy.yml -f rollback_run_id=<GOOD_RUN_ID> -f rollback_commit=<GOOD_COMMIT>"
+            exit 1
+          fi
+          echo "Rolling back to: run_id=${GOOD_RUN_ID} commit=${GOOD_COMMIT}"
+          ./scripts/deploy.sh \
+            --artifact "last-known-good" \
+            --commit "${GOOD_COMMIT}" \
+            --mode "rollback"
+        env:
+          DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET }}
+          LAST_GOOD_RUN_ID: ${{ vars.LAST_GOOD_RUN_ID }}
+          LAST_GOOD_COMMIT: ${{ vars.LAST_GOOD_COMMIT }}

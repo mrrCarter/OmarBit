@@ -10,7 +10,7 @@ on:
     types: [opened, synchronize, reopened]
 
 concurrency:
-  group: omar-gate-${{ github.workflow }}-${{ github.ref }}
+  group: omar-gate-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -162,6 +162,6 @@ jobs:
           sentinelayer_spec_id: 31a72b526381f229fd006d3748b239cbb5afd6ba3705518cd182f4be9fae9e5c
           severity_gate: P2
           scan_mode: deep
-          share_metadata: 'true'
+          share_metadata: 'false'
           policy_pack: omar
           policy_pack_version: v1
