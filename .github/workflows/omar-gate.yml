@@ -101,7 +101,7 @@ jobs:
           set -euo pipefail
           npm ci --ignore-scripts=false
           npm run build --if-present
-          tar -czf build-artifact.tar.gz apps/web/.next/
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -czf build-artifact.tar.gz apps/web/.next/
           sha256sum build-artifact.tar.gz > build-artifact.tar.gz.sha256
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -138,6 +138,10 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      # OPENAI_API_KEY: required by SentinelLayer for LLM-based analysis.
+      # Risk mitigations: fork_policy=block prevents fork PRs from accessing
+      # secrets; key is a repository secret with no environment scope needed
+      # since this runs on every PR (not just production deploys).
       - uses: mrrCarter/sentinelayer-v1-action@14ca51c75ca81fdb6e6b7668d417d6a5abc39018
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,15 +1,17 @@
 # Deploy workflow — promotes a verified build artifact to production.
-# Requires manual approval via GitHub environment protection rules.
-# Triggered after Omar Gate passes on the main branch.
+# Gated on Omar Gate CI passing; requires environment approval.
+# Rollback: workflow_dispatch with rollback_run_id input.
 
 name: Deploy
 on:
-  push:
+  workflow_run:
+    workflows: ["Omar Gate Security Review"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
     inputs:
       rollback_run_id:
-        description: 'Run ID to rollback to (leave empty for normal deploy)'
+        description: 'Workflow run ID to rollback to (leave empty for normal deploy)'
         required: false
         type: string
 
@@ -21,48 +23,76 @@ permissions:
   contents: read
   id-token: write
   attestations: read
+  actions: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    if: >-
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event.workflow_run.conclusion == 'success')
     environment:
       name: production
       url: ${{ vars.PRODUCTION_URL }}
     permissions:
       contents: read
       id-token: write
+      actions: read
+    outputs:
+      artifact-digest: ${{ steps.verify.outputs.digest }}
+      deploy-commit: ${{ steps.meta.outputs.commit_sha }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Download build artifact
-        if: ${{ !inputs.rollback_run_id }}
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: build-artifact
-          run-id: ${{ github.run_id }}
+      - name: Resolve source run
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.rollback_run_id }}" ]; then
+            RUN_ID="${{ inputs.rollback_run_id }}"
+            echo "mode=rollback" >> "$GITHUB_OUTPUT"
+          else
+            RUN_ID="${{ github.event.workflow_run.id }}"
+            echo "mode=deploy" >> "$GITHUB_OUTPUT"
+          fi
+          echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
+          echo "commit_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
-      - name: Download rollback artifact
-        if: ${{ inputs.rollback_run_id }}
+      - name: Download build artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: build-artifact
-          run-id: ${{ inputs.rollback_run_id }}
+          run-id: ${{ steps.meta.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify artifact integrity
+        id: verify
         shell: bash
         run: |
           set -euo pipefail
           sha256sum -c build-artifact.tar.gz.sha256
-          echo "Artifact verified successfully"
+          DIGEST=$(sha256sum build-artifact.tar.gz | awk '{print $1}')
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "Artifact verified: sha256:${DIGEST}"
 
       - name: Deploy
         shell: bash
         run: |
           set -euo pipefail
-          echo "Deploying build artifact to production..."
-          # Placeholder: replace with actual deployment commands
-          # e.g., docker push, kubectl apply, vercel deploy, etc.
-          echo "Deploy target: ${DEPLOY_TARGET:-not-configured}"
+          ARTIFACT_DIGEST="${{ steps.verify.outputs.digest }}"
+          COMMIT_SHA="${{ steps.meta.outputs.commit_sha }}"
+          MODE="${{ steps.meta.outputs.mode }}"
+          echo "::group::Deploy metadata"
+          echo "mode=${MODE}"
+          echo "artifact_digest=sha256:${ARTIFACT_DIGEST}"
+          echo "commit=${COMMIT_SHA}"
+          echo "deploy_target=${DEPLOY_TARGET:?DEPLOY_TARGET not configured}"
+          echo "::endgroup::"
+          ./scripts/deploy.sh \
+            --artifact "sha256:${ARTIFACT_DIGEST}" \
+            --commit "${COMMIT_SHA}" \
+            --mode "${MODE}"
         env:
           DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET }}
 
@@ -74,18 +104,38 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          HEALTH_URL="${HEALTH_CHECK_URL:-http://localhost:3000/api/health}"
-          echo "Checking health at: $HEALTH_URL"
-          # Placeholder: replace with actual health check
-          # for i in $(seq 1 5); do
-          #   if curl -sf "$HEALTH_URL" > /dev/null; then
-          #     echo "Health check passed"
-          #     exit 0
-          #   fi
-          #   sleep 10
-          # done
-          # echo "Health check failed — consider rollback"
-          # exit 1
-          echo "Health check placeholder — configure HEALTH_CHECK_URL"
+          HEALTH_URL="${HEALTH_CHECK_URL:?HEALTH_CHECK_URL not configured}"
+          MAX_ATTEMPTS=5
+          TIMEOUT=5
+          echo "Health check: ${HEALTH_URL} (max ${MAX_ATTEMPTS} attempts)"
+          for i in $(seq 1 "${MAX_ATTEMPTS}"); do
+            DELAY=$(( 2 ** (i - 1) ))
+            if curl --fail --silent --show-error --max-time "${TIMEOUT}" "${HEALTH_URL}" > /dev/null; then
+              echo "Health check passed on attempt ${i}"
+              exit 0
+            fi
+            echo "Attempt ${i}/${MAX_ATTEMPTS} failed, retrying in ${DELAY}s..."
+            sleep "${DELAY}"
+          done
+          echo "::error::Health check failed after ${MAX_ATTEMPTS} attempts"
+          exit 1
         env:
           HEALTH_CHECK_URL: ${{ vars.HEALTH_CHECK_URL }}
+
+  rollback:
+    needs: [deploy, health-check]
+    if: failure() && needs.deploy.result == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - name: Trigger rollback
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::error::Health check failed — triggering automatic rollback"
+          echo "Failed deploy commit: ${{ needs.deploy.outputs.deploy-commit }}"
+          echo "Failed artifact digest: ${{ needs.deploy.outputs.artifact-digest }}"
+          echo "Rollback requires manual workflow_dispatch with a known-good run ID"
+          echo "Use: gh workflow run deploy.yml -f rollback_run_id=<GOOD_RUN_ID>"
+          exit 1
