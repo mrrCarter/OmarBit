@@ -2,7 +2,17 @@
 -- WARNING: Destructive operation. Only run in dev/staging.
 -- Production rollbacks should use point-in-time recovery (PITR)
 -- from the managed database provider.
--- Pre-flight: verify target database via SELECT current_database();
+
+-- Safety guard: abort if running against a production database.
+-- Set ALLOW_DESTRUCTIVE_MIGRATION=true to override.
+DO $$
+BEGIN
+  IF current_setting('app.allow_destructive_migration', true) IS DISTINCT FROM 'true' THEN
+    RAISE EXCEPTION 'Destructive migration blocked. Set: SET app.allow_destructive_migration = ''true''; to proceed.';
+  END IF;
+END
+$$;
+
 BEGIN;
 
 DROP TABLE IF EXISTS idempotency_keys CASCADE;

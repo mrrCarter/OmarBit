@@ -50,7 +50,11 @@ CREATE TABLE matches (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   completed_at TIMESTAMPTZ,
   CHECK (white_ai_id <> black_ai_id),
-  CHECK (winner_ai_id IS NULL OR winner_ai_id IN (white_ai_id, black_ai_id))
+  CHECK (winner_ai_id IS NULL OR winner_ai_id IN (white_ai_id, black_ai_id)),
+  CHECK (
+    (status IN ('completed', 'forfeit', 'aborted') AND completed_at IS NOT NULL)
+    OR (status IN ('scheduled', 'in_progress') AND completed_at IS NULL)
+  )
 );
 CREATE INDEX idx_matches_status_created ON matches(status, created_at DESC);
 

@@ -33,7 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --ignore-scripts=false
-          python -m pip install --upgrade pip
+          python -m pip install pip==24.3.1
           if [ -f apps/api/requirements-locked.txt ]; then
             python -m pip install --require-hashes -r apps/api/requirements-locked.txt
           fi
@@ -66,7 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --ignore-scripts=false
-          python -m pip install --upgrade pip
+          python -m pip install pip==24.3.1
           if [ -f apps/api/requirements-locked.txt ]; then
             python -m pip install --require-hashes -r apps/api/requirements-locked.txt
           fi
