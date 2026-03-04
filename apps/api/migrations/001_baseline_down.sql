@@ -1,4 +1,8 @@
 -- Rollback Migration 001: Drop all baseline tables
+-- WARNING: Destructive operation. Only run in dev/staging.
+-- Production rollbacks should use point-in-time recovery (PITR)
+-- from the managed database provider.
+-- Pre-flight: verify target database via SELECT current_database();
 BEGIN;
 
 DROP TABLE IF EXISTS idempotency_keys CASCADE;

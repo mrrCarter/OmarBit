@@ -92,6 +92,10 @@ CREATE TABLE idempotency_keys (
   PRIMARY KEY (actor_id, key, endpoint),
   CONSTRAINT uq_idempotency_fingerprint UNIQUE (actor_id, endpoint, key, request_hash)
 );
+-- Index on expires_at enables efficient TTL cleanup. The application layer
+-- deletes expired keys via a scheduled task (e.g. pg_cron or Celery beat):
+--   DELETE FROM idempotency_keys WHERE expires_at < now();
+-- Default TTL is 24 hours (set at insert time by the API).
 CREATE INDEX idx_idempotency_expires_at ON idempotency_keys(expires_at);
 
 COMMIT;

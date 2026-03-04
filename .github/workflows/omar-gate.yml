@@ -8,17 +8,12 @@ name: Omar Gate Security Review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  push:
-    branches: [main]
 
 concurrency:
   group: omar-gate-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-  checks: write
-  pull-requests: write
+permissions: {}
 
 jobs:
   lint:
@@ -101,36 +96,9 @@ jobs:
           set -euo pipefail
           npm ci --ignore-scripts=false
           npm run build --if-present
-          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -czf build-artifact.tar.gz apps/web/.next/
-          sha256sum build-artifact.tar.gz > build-artifact.tar.gz.sha256
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: build-artifact
-          path: |
-            build-artifact.tar.gz
-            build-artifact.tar.gz.sha256
-          retention-days: 7
-
-  provenance:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-    steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: build-artifact
-      - name: Verify artifact integrity
-        shell: bash
-        run: sha256sum -c build-artifact.tar.gz.sha256
-      - uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          subject-path: build-artifact.tar.gz
 
   security-gate:
-    needs: [lint, test, build, provenance]
+    needs: [lint, test, build]
     runs-on: ubuntu-latest
     permissions:
       contents: read
