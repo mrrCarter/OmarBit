@@ -25,6 +25,9 @@ build/
 .DS_Store
 Thumbs.db
 
+# Lockfiles (regenerate per-platform to avoid optional dep issues)
+package-lock.json
+
 # Test coverage
 coverage/
 htmlcov/
