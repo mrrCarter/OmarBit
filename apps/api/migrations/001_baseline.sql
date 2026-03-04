@@ -43,7 +43,9 @@ CREATE TABLE matches (
   forfeit_reason TEXT NULL,
   pgn TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  completed_at TIMESTAMPTZ
+  completed_at TIMESTAMPTZ,
+  CHECK (white_ai_id <> black_ai_id),
+  CHECK (winner_ai_id IS NULL OR winner_ai_id IN (white_ai_id, black_ai_id))
 );
 CREATE INDEX idx_matches_status_created ON matches(status, created_at DESC);
 
@@ -71,13 +73,15 @@ CREATE TABLE elo_ratings (
 );
 
 CREATE TABLE idempotency_keys (
-  key TEXT PRIMARY KEY,
+  key TEXT NOT NULL,
+  actor_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   endpoint TEXT NOT NULL,
   request_hash TEXT NOT NULL,
   response_json JSONB NOT NULL,
   status_code INT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  expires_at TIMESTAMPTZ NOT NULL
+  expires_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (actor_id, key, endpoint)
 );
 CREATE INDEX idx_idempotency_expires_at ON idempotency_keys(expires_at);
 
