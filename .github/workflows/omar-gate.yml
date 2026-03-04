@@ -1,0 +1,95 @@
+# Omar Gate — AI-powered security review for pull requests.
+# Runs the SentinelLayer Omar action on every PR to surface security,
+# compliance, and code-quality issues before merge. Findings are posted
+# as inline PR comments with severity levels (P1-P4).
+# Docs: https://docs.sentinelayer.com/omar-gate
+
+name: Omar Gate Security Review
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  quality-gates:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run quality gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f pnpm-lock.yaml ]; then
+            corepack enable
+            pnpm i --frozen-lockfile
+          elif [ -f package-lock.json ]; then
+            npm ci
+          elif [ -f yarn.lock ]; then
+            yarn install --frozen-lockfile
+          elif [ -f package.json ]; then
+            npm install
+          fi
+          if [ -f package.json ]; then
+            npm run typecheck --if-present
+            npm run lint --if-present
+            npm test --if-present
+            npm run build --if-present
+          fi
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            python -m pip install -r requirements.txt
+          elif [ -f apps/api/requirements.txt ]; then
+            python -m pip install -r apps/api/requirements.txt
+          fi
+          if [ -f apps/api/requirements-dev.txt ]; then
+            python -m pip install -r apps/api/requirements-dev.txt
+          fi
+          if [ -f requirements.txt ] || [ -f apps/api/requirements.txt ] || [ -f pyproject.toml ]; then
+            ruff check .
+            python -m pytest -q
+          fi
+
+  security-gate:
+    needs: quality-gates
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mrrCarter/sentinelayer-v1-action@14ca51c75ca81fdb6e6b7668d417d6a5abc39018
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          use_codex: 'true'
+          codex_only: 'true'
+          codex_model: gpt-5.3-codex
+          codex_timeout: '480'
+          model_fallback: gpt-4.1-mini
+          llm_failure_policy: block
+          run_harness: 'true'
+          fork_policy: block
+          telemetry: 'true'
+          telemetry_tier: '1'
+          sentinelayer_managed_llm: 'false'
+          training_opt_in: 'false'
+          max_input_tokens: '120000'
+          sentinelayer_spec_id: 31a72b526381f229fd006d3748b239cbb5afd6ba3705518cd182f4be9fae9e5c
+          severity_gate: P2
+          scan_mode: deep
+          share_metadata: 'true'
+          policy_pack: omar
+          policy_pack_version: v1
