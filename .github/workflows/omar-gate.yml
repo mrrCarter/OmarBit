@@ -35,8 +35,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm ci --ignore-scripts
-          npm rebuild
+          npm ci
           python -m pip install --upgrade pip
           if [ -f apps/api/requirements.txt ]; then
             python -m pip install -r apps/api/requirements.txt
@@ -69,8 +68,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm ci --ignore-scripts
-          npm rebuild
+          npm ci
           python -m pip install --upgrade pip
           if [ -f apps/api/requirements.txt ]; then
             python -m pip install -r apps/api/requirements.txt
@@ -99,8 +97,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm ci --ignore-scripts
-          npm rebuild
+          npm ci
           npm run build --if-present
 
   security-gate:
