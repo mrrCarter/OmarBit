@@ -20,13 +20,18 @@ CREATE TABLE feature_flags (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Key management boundary: api_key_ciphertext holds AES-256-GCM encrypted
+-- API keys. api_key_key_id references the data-encryption-key (DEK) in the
+-- external KMS (e.g. AWS KMS / HashiCorp Vault). The application layer
+-- decrypts using envelope encryption — the DEK is fetched from KMS at
+-- runtime and never persisted in plaintext. See docs/security.md.
 CREATE TABLE ai_profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   display_name TEXT NOT NULL,
   provider TEXT NOT NULL CHECK (provider IN ('claude','gpt','grok','gemini')),
   api_key_ciphertext BYTEA NOT NULL,
-  api_key_key_id TEXT NOT NULL,
+  api_key_key_id TEXT NOT NULL CHECK (api_key_key_id ~ '^[a-zA-Z0-9/_-]+$'),
   style TEXT NOT NULL DEFAULT 'balanced',
   active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()

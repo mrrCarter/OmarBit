@@ -17,6 +17,8 @@ permissions:
   contents: read
   checks: write
   pull-requests: write
+  id-token: write
+  attestations: write
 
 jobs:
   lint:
@@ -35,7 +37,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm ci
+          npm ci --ignore-scripts=false
           python -m pip install --upgrade pip
           if [ -f apps/api/requirements.txt ]; then
             python -m pip install -r apps/api/requirements.txt
@@ -68,7 +70,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm ci
+          npm ci --ignore-scripts=false
           python -m pip install --upgrade pip
           if [ -f apps/api/requirements.txt ]; then
             python -m pip install -r apps/api/requirements.txt
@@ -97,11 +99,34 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm ci
+          npm ci --ignore-scripts=false
           npm run build --if-present
 
+  provenance:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20'
+      - name: Build and attest
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts=false
+          npm run build --if-present
+          tar -czf build-artifact.tar.gz apps/web/.next/
+      - uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: build-artifact.tar.gz
+
   security-gate:
-    needs: [lint, test, build]
+    needs: [lint, test, build, provenance]
     runs-on: ubuntu-latest
     permissions:
       contents: read

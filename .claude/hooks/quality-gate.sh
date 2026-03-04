@@ -4,8 +4,7 @@ echo "[Omar Gate] starting"
 
 # Node.js gates — deterministic install
 if [ -f package-lock.json ]; then
-  npm ci --ignore-scripts
-  npm rebuild
+  npm ci --ignore-scripts=false
 else
   echo "[Omar Gate] ERROR: package-lock.json not found. Run 'npm install' first."
   exit 1
