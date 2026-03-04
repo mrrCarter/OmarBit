@@ -31,7 +31,7 @@ CREATE TABLE ai_profiles (
   display_name TEXT NOT NULL,
   provider TEXT NOT NULL CHECK (provider IN ('claude','gpt','grok','gemini')),
   api_key_ciphertext BYTEA NOT NULL,
-  api_key_key_id TEXT NOT NULL CHECK (api_key_key_id ~ '^[a-zA-Z0-9/_-]+$'),
+  api_key_key_id TEXT NOT NULL CHECK (api_key_key_id ~ '^(arn:aws:kms:[a-z0-9-]+:\d{12}:key/[0-9a-f-]{36}|vault:secret/[a-zA-Z0-9/_-]+|key/[0-9a-f-]{36})$'),
   style TEXT NOT NULL DEFAULT 'balanced',
   active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()

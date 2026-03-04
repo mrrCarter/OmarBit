@@ -27,12 +27,15 @@ services:
       timeout: 3s
       retries: 5
 
+  # MinIO — local dev only (localhost-bound). Production uses managed S3
+  # with SSE-S3/SSE-KMS encryption and TLS. Do not expose beyond localhost.
   minio:
     image: minio/minio:RELEASE.2024-05-10T01-41-38Z@sha256:420663b8685c5396f06405ad516d611db4465939a141cc7d40266342d0f2632d
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?required}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?required}
+      MINIO_SERVER_URL: "http://127.0.0.1:9000"
     ports:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"

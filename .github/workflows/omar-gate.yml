@@ -10,7 +10,7 @@ on:
     types: [opened, synchronize, reopened]
 
 concurrency:
-  group: omar-gate-${{ github.ref }}
+  group: omar-gate-pr-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions: {}
