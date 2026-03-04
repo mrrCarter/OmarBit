@@ -25,8 +25,8 @@ else
   source .venv/bin/activate
 fi
 
-pip install -r apps/api/requirements.txt
-pip install -r apps/api/requirements-dev.txt
+pip install --require-hashes -r apps/api/requirements-locked.txt
+pip install --require-hashes -r apps/api/requirements-dev-locked.txt
 ruff check .
 pytest -q
 mypy apps/api --exclude 'tests/'

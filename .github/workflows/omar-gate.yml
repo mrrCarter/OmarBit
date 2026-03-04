@@ -8,6 +8,8 @@ name: Omar Gate Security Review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
 
 concurrency:
   group: omar-gate-${{ github.ref }}
@@ -39,11 +41,11 @@ jobs:
           set -euo pipefail
           npm ci --ignore-scripts=false
           python -m pip install --upgrade pip
-          if [ -f apps/api/requirements.txt ]; then
-            python -m pip install -r apps/api/requirements.txt
+          if [ -f apps/api/requirements-locked.txt ]; then
+            python -m pip install --require-hashes -r apps/api/requirements-locked.txt
           fi
-          if [ -f apps/api/requirements-dev.txt ]; then
-            python -m pip install -r apps/api/requirements-dev.txt
+          if [ -f apps/api/requirements-dev-locked.txt ]; then
+            python -m pip install --require-hashes -r apps/api/requirements-dev-locked.txt
           fi
       - name: Lint
         shell: bash
@@ -72,11 +74,11 @@ jobs:
           set -euo pipefail
           npm ci --ignore-scripts=false
           python -m pip install --upgrade pip
-          if [ -f apps/api/requirements.txt ]; then
-            python -m pip install -r apps/api/requirements.txt
+          if [ -f apps/api/requirements-locked.txt ]; then
+            python -m pip install --require-hashes -r apps/api/requirements-locked.txt
           fi
-          if [ -f apps/api/requirements-dev.txt ]; then
-            python -m pip install -r apps/api/requirements-dev.txt
+          if [ -f apps/api/requirements-dev-locked.txt ]; then
+            python -m pip install --require-hashes -r apps/api/requirements-dev-locked.txt
           fi
       - name: Test
         shell: bash
@@ -142,7 +144,7 @@ jobs:
       # Risk mitigations: fork_policy=block prevents fork PRs from accessing
       # secrets; key is a repository secret with no environment scope needed
       # since this runs on every PR (not just production deploys).
-      - uses: mrrCarter/sentinelayer-v1-action@14ca51c75ca81fdb6e6b7668d417d6a5abc39018
+      - uses: mrrCarter/sentinelayer-v1-action@14ca51c75ca81fdb6e6b7668d417d6a5abc39018 # v1.3.4 (allowlisted)
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}

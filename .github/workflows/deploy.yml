@@ -52,6 +52,8 @@ jobs:
       - name: Resolve source run
         id: meta
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [ -n "${{ inputs.rollback_run_id }}" ]; then
@@ -59,6 +61,13 @@ jobs:
             COMMIT="${{ inputs.rollback_commit }}"
             if [ -z "${COMMIT}" ]; then
               echo "::error::rollback_commit is required when rollback_run_id is set"
+              exit 1
+            fi
+            # Validate the source run was a successful CI run on main
+            RUN_STATUS=$(gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}" --jq '.conclusion')
+            RUN_BRANCH=$(gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}" --jq '.head_branch')
+            if [ "${RUN_STATUS}" != "success" ] || [ "${RUN_BRANCH}" != "main" ]; then
+              echo "::error::Rollback run ${RUN_ID} must be a successful run on main (got: ${RUN_STATUS}/${RUN_BRANCH})"
               exit 1
             fi
             echo "mode=rollback" >> "$GITHUB_OUTPUT"
@@ -80,15 +89,25 @@ jobs:
           run-id: ${{ steps.meta.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Verify artifact integrity
+      - name: Verify artifact integrity and provenance
         id: verify
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # Verify checksum
           sha256sum -c build-artifact.tar.gz.sha256
           DIGEST=$(sha256sum build-artifact.tar.gz | awk '{print $1}')
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "Artifact verified: sha256:${DIGEST}"
+          echo "Artifact checksum verified: sha256:${DIGEST}"
+          # Verify provenance attestation (non-blocking in Phase 0)
+          if gh attestation verify build-artifact.tar.gz \
+            --repo "${{ github.repository }}" 2>/dev/null; then
+            echo "Provenance attestation verified"
+          else
+            echo "::warning::Attestation verification unavailable (Phase 0)"
+          fi
 
       - name: Deploy
         shell: bash

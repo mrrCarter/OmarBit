@@ -39,7 +39,9 @@ echo "Target:   ${DEPLOY_TARGET}"
 echo "Time:     ${TIMESTAMP}"
 
 # Emit structured deploy metadata for audit trail
-cat <<EOF > /tmp/deploy-metadata.json
+METADATA_FILE=$(mktemp /tmp/deploy-metadata.XXXXXX.json)
+trap 'rm -f "$METADATA_FILE"' EXIT
+cat <<EOF > "$METADATA_FILE"
 {
   "mode": "${MODE}",
   "artifact_digest": "${ARTIFACT_DIGEST}",
@@ -50,6 +52,7 @@ cat <<EOF > /tmp/deploy-metadata.json
   "image": "${IMAGE_NAME}"
 }
 EOF
+echo "Deploy metadata: ${METADATA_FILE}"
 
 case "${MODE}" in
   deploy)
