@@ -2,6 +2,10 @@
   "name": "omarbit",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "npm@10.9.2",
+  "engines": {
+    "node": ">=20"
+  },
   "workspaces": [
     "apps/web"
   ],
