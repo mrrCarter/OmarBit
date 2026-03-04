@@ -101,6 +101,15 @@ jobs:
           set -euo pipefail
           npm ci --ignore-scripts=false
           npm run build --if-present
+          tar -czf build-artifact.tar.gz apps/web/.next/
+          sha256sum build-artifact.tar.gz > build-artifact.tar.gz.sha256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: build-artifact
+          path: |
+            build-artifact.tar.gz
+            build-artifact.tar.gz.sha256
+          retention-days: 7
 
   provenance:
     needs: build
@@ -110,17 +119,12 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          node-version: '20'
-      - name: Build and attest
+          name: build-artifact
+      - name: Verify artifact integrity
         shell: bash
-        run: |
-          set -euo pipefail
-          npm ci --ignore-scripts=false
-          npm run build --if-present
-          tar -czf build-artifact.tar.gz apps/web/.next/
+        run: sha256sum -c build-artifact.tar.gz.sha256
       - uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: build-artifact.tar.gz
@@ -130,7 +134,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      checks: write
       pull-requests: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2

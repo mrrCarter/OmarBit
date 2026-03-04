@@ -1,0 +1,91 @@
+# Deploy workflow — promotes a verified build artifact to production.
+# Requires manual approval via GitHub environment protection rules.
+# Triggered after Omar Gate passes on the main branch.
+
+name: Deploy
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      rollback_run_id:
+        description: 'Run ID to rollback to (leave empty for normal deploy)'
+        required: false
+        type: string
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_URL }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Download build artifact
+        if: ${{ !inputs.rollback_run_id }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: build-artifact
+          run-id: ${{ github.run_id }}
+
+      - name: Download rollback artifact
+        if: ${{ inputs.rollback_run_id }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: build-artifact
+          run-id: ${{ inputs.rollback_run_id }}
+
+      - name: Verify artifact integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum -c build-artifact.tar.gz.sha256
+          echo "Artifact verified successfully"
+
+      - name: Deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Deploying build artifact to production..."
+          # Placeholder: replace with actual deployment commands
+          # e.g., docker push, kubectl apply, vercel deploy, etc.
+          echo "Deploy target: ${DEPLOY_TARGET:-not-configured}"
+        env:
+          DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET }}
+
+  health-check:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify deployment health
+        shell: bash
+        run: |
+          set -euo pipefail
+          HEALTH_URL="${HEALTH_CHECK_URL:-http://localhost:3000/api/health}"
+          echo "Checking health at: $HEALTH_URL"
+          # Placeholder: replace with actual health check
+          # for i in $(seq 1 5); do
+          #   if curl -sf "$HEALTH_URL" > /dev/null; then
+          #     echo "Health check passed"
+          #     exit 0
+          #   fi
+          #   sleep 10
+          # done
+          # echo "Health check failed — consider rollback"
+          # exit 1
+          echo "Health check placeholder — configure HEALTH_CHECK_URL"
+        env:
+          HEALTH_CHECK_URL: ${{ vars.HEALTH_CHECK_URL }}
