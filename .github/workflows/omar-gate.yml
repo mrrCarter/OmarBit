@@ -19,8 +19,6 @@ permissions:
   contents: read
   checks: write
   pull-requests: write
-  id-token: write
-  attestations: write
 
 jobs:
   lint:
@@ -156,8 +154,7 @@ jobs:
           llm_failure_policy: block
           run_harness: 'true'
           fork_policy: block
-          telemetry: 'true'
-          telemetry_tier: '1'
+          telemetry: 'false'
           sentinelayer_managed_llm: 'false'
           training_opt_in: 'false'
           max_input_tokens: '120000'
