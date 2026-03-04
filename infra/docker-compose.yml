@@ -19,10 +19,11 @@ services:
 
   redis:
     image: redis:7@sha256:387977b505c656572e08163141edbfe89e6d2434316569a2bbeaae5cfefa388f
+    command: redis-server --requirepass "${REDIS_PASSWORD:?required}"
     ports:
       - "127.0.0.1:6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
