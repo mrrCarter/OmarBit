@@ -76,6 +76,29 @@ async def create_ai_profile(
     if not key_valid:
         raise _error_envelope(request, "INVALID_API_KEY", key_error, 400)
 
+    # Sanitize custom instructions (strip code blocks, URLs, injection patterns)
+    sanitized_instructions = body.custom_instructions
+    if sanitized_instructions:
+        from instruction_sanitizer import sanitize_instructions
+
+        sanitized_instructions, sanitize_warnings = sanitize_instructions(sanitized_instructions)
+        for w in sanitize_warnings:
+            if w.startswith("REJECTED:"):
+                raise _error_envelope(
+                    request, "UNSAFE_INSTRUCTIONS",
+                    f"Custom instructions rejected: {w.removeprefix('REJECTED: ')}", 400,
+                )
+
+        # Run LLM safety scanner (feature-flagged, non-blocking on failure)
+        from safety_scanner import scan_instructions
+
+        is_safe, safety_reason = await scan_instructions(sanitized_instructions)
+        if not is_safe:
+            raise _error_envelope(
+                request, "UNSAFE_INSTRUCTIONS",
+                f"Custom instructions flagged by safety review: {safety_reason}", 400,
+            )
+
     request_hash = _compute_request_hash(body.model_dump(exclude={"api_key"}))
 
     async with get_conn() as conn:
@@ -128,7 +151,7 @@ async def create_ai_profile(
                 "RETURNING id, display_name, provider, model, style, active, created_at",
                 (
                     user_db_id, body.display_name, body.provider, model,
-                    ciphertext, key_id, body.style, body.custom_instructions,
+                    ciphertext, key_id, body.style, sanitized_instructions,
                 ),
             )
             profile = await cur.fetchone()
