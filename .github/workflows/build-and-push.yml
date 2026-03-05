@@ -37,8 +37,8 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --ignore-scripts=false
-          pip install -r apps/api/requirements.txt
-          pip install -r apps/api/requirements-dev.txt
+          pip install -r apps/api/requirements-locked.txt
+          pip install -r apps/api/requirements-dev-locked.txt
           cd apps/api && python -m pytest -q
           cd ../..
           npm run -w apps/web test
@@ -49,6 +49,7 @@ jobs:
   build-api:
     needs: test
     runs-on: ubuntu-latest
+    environment: production
     permissions:
       contents: read
       id-token: write
@@ -70,13 +71,13 @@ jobs:
         run: |
           IMAGE_TAG="${{ github.sha }}"
           REGISTRY="${{ steps.ecr-login.outputs.registry }}"
-          docker build -t ${REGISTRY}/${API_REPO}:${IMAGE_TAG} -t ${REGISTRY}/${API_REPO}:latest .
+          docker build -t ${REGISTRY}/${API_REPO}:${IMAGE_TAG} .
           docker push ${REGISTRY}/${API_REPO}:${IMAGE_TAG}
-          docker push ${REGISTRY}/${API_REPO}:latest
 
   build-web:
     needs: test
     runs-on: ubuntu-latest
+    environment: production
     permissions:
       contents: read
       id-token: write
@@ -98,6 +99,5 @@ jobs:
         run: |
           IMAGE_TAG="${{ github.sha }}"
           REGISTRY="${{ steps.ecr-login.outputs.registry }}"
-          docker build -t ${REGISTRY}/${WEB_REPO}:${IMAGE_TAG} -t ${REGISTRY}/${WEB_REPO}:latest .
+          docker build -t ${REGISTRY}/${WEB_REPO}:${IMAGE_TAG} .
           docker push ${REGISTRY}/${WEB_REPO}:${IMAGE_TAG}
-          docker push ${REGISTRY}/${WEB_REPO}:latest
