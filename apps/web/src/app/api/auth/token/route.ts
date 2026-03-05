@@ -19,21 +19,26 @@ function checkRateLimit(userId: string): boolean {
   return true;
 }
 
+function errorResponse(code: string, message: string, status: number) {
+  return NextResponse.json(
+    {
+      error: { code, message },
+      requestId: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+    },
+    { status }
+  );
+}
+
 export async function GET() {
   const session = await auth();
   if (!session?.user) {
-    return NextResponse.json(
-      { error: { code: "UNAUTHORIZED", message: "Not authenticated" } },
-      { status: 401 }
-    );
+    return errorResponse("UNAUTHORIZED", "Not authenticated", 401);
   }
 
   const secret = process.env.NEXTAUTH_SECRET;
   if (!secret) {
-    return NextResponse.json(
-      { error: { code: "SERVER_ERROR", message: "Auth secret not configured" } },
-      { status: 500 }
-    );
+    return errorResponse("SERVER_ERROR", "Auth secret not configured", 500);
   }
 
   const user = session.user as {
@@ -48,17 +53,11 @@ export async function GET() {
   const userId = user.id ?? "";
 
   if (!githubId || !username || !userId) {
-    return NextResponse.json(
-      { error: { code: "UNAUTHORIZED", message: "Session missing required user claims" } },
-      { status: 401 }
-    );
+    return errorResponse("UNAUTHORIZED", "Session missing required user claims", 401);
   }
 
   if (!checkRateLimit(userId || githubId)) {
-    return NextResponse.json(
-      { error: { code: "RATE_LIMITED", message: "Too many token requests" } },
-      { status: 429 }
-    );
+    return errorResponse("RATE_LIMITED", "Too many token requests", 429);
   }
 
   const token = await new SignJWT({
