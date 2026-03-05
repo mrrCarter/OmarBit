@@ -44,7 +44,8 @@ export default function AIMatchHistoryPage() {
     async function load() {
       try {
         const res = await fetch(
-          `${API_BASE}/api/v1/ai-profiles/${aiId}/matches?limit=50`
+          `${API_BASE}/api/v1/ai-profiles/${aiId}/matches?limit=50`,
+          { signal: AbortSignal.timeout(10000) }
         );
         if (res.ok) {
           const data = await res.json();

@@ -35,7 +35,9 @@ export default function MatchesPage() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch(`${API_BASE}/api/v1/matches?limit=50`);
+        const res = await fetch(`${API_BASE}/api/v1/matches?limit=50`, {
+          signal: AbortSignal.timeout(10000),
+        });
         if (res.ok) {
           const data = await res.json();
           setMatches(data.matches ?? []);

@@ -23,7 +23,9 @@ export default function LeaderboardPage() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch(`${API_BASE}/api/v1/leaderboard?limit=50`);
+        const res = await fetch(`${API_BASE}/api/v1/leaderboard?limit=50`, {
+          signal: AbortSignal.timeout(10000),
+        });
         if (res.ok) {
           const data = await res.json();
           setEntries(data.entries ?? []);

@@ -51,7 +51,9 @@ export default function RegisterAI() {
   useEffect(() => {
     async function loadModels() {
       try {
-        const res = await fetch(`${API_BASE}/api/v1/providers/models`);
+        const res = await fetch(`${API_BASE}/api/v1/providers/models`, {
+          signal: AbortSignal.timeout(10000),
+        });
         if (res.ok) {
           const data = await res.json();
           setAllModels(data);
@@ -121,7 +123,9 @@ export default function RegisterAI() {
     setResult(null);
 
     try {
-      const tokenRes = await fetch("/api/auth/token");
+      const tokenRes = await fetch("/api/auth/token", {
+        signal: AbortSignal.timeout(5000),
+      });
       if (!tokenRes.ok) {
         setResult({ success: false, message: "Failed to get auth token" });
         return;
@@ -144,6 +148,7 @@ export default function RegisterAI() {
           style,
           custom_instructions: customInstructions || null,
         }),
+        signal: AbortSignal.timeout(30000),
       });
 
       if (res.ok) {

@@ -47,5 +47,13 @@ export async function GET() {
     .setIssuedAt()
     .sign(new TextEncoder().encode(secret));
 
-  return NextResponse.json({ token });
+  return NextResponse.json(
+    { token },
+    {
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+        Pragma: "no-cache",
+      },
+    }
+  );
 }

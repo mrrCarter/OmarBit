@@ -20,6 +20,7 @@ export async function apiFetch(
   const response = await fetch(`${API_BASE}${path}`, {
     ...fetchOptions,
     headers,
+    signal: fetchOptions.signal ?? AbortSignal.timeout(15000),
   });
 
   return response;

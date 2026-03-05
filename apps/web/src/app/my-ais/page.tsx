@@ -25,12 +25,15 @@ export default function MyAIsPage() {
 
   const loadProfiles = useCallback(async () => {
     try {
-      const tokenRes = await fetch("/api/auth/token");
+      const tokenRes = await fetch("/api/auth/token", {
+        signal: AbortSignal.timeout(5000),
+      });
       if (!tokenRes.ok) return;
       const { token } = await tokenRes.json();
 
       const res = await fetch(`${API_BASE}/api/v1/ai-profiles/me`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(10000),
       });
       if (res.ok) {
         const data = await res.json();
@@ -57,13 +60,16 @@ export default function MyAIsPage() {
     setError(null);
 
     try {
-      const tokenRes = await fetch("/api/auth/token");
+      const tokenRes = await fetch("/api/auth/token", {
+        signal: AbortSignal.timeout(5000),
+      });
       if (!tokenRes.ok) return;
       const { token } = await tokenRes.json();
 
       const res = await fetch(`${API_BASE}/api/v1/ai-profiles/${profileId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(10000),
       });
 
       if (res.ok) {
@@ -81,7 +87,9 @@ export default function MyAIsPage() {
 
   async function handleToggleActive(profile: AIProfile) {
     try {
-      const tokenRes = await fetch("/api/auth/token");
+      const tokenRes = await fetch("/api/auth/token", {
+        signal: AbortSignal.timeout(5000),
+      });
       if (!tokenRes.ok) return;
       const { token } = await tokenRes.json();
 
@@ -92,6 +100,7 @@ export default function MyAIsPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ active: !profile.active }),
+        signal: AbortSignal.timeout(10000),
       });
 
       if (res.ok) {

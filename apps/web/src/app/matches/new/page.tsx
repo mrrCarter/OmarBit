@@ -29,12 +29,15 @@ export default function NewMatchPage() {
 
     async function loadProfiles() {
       try {
-        const tokenRes = await fetch("/api/auth/token");
+        const tokenRes = await fetch("/api/auth/token", {
+          signal: AbortSignal.timeout(5000),
+        });
         if (!tokenRes.ok) return;
         const { token } = await tokenRes.json();
 
         const res = await fetch(`${API_BASE}/api/v1/ai-profiles/me`, {
           headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(10000),
         });
         if (res.ok) {
           const data = await res.json();
@@ -84,7 +87,9 @@ export default function NewMatchPage() {
     setError("");
 
     try {
-      const tokenRes = await fetch("/api/auth/token");
+      const tokenRes = await fetch("/api/auth/token", {
+        signal: AbortSignal.timeout(5000),
+      });
       if (!tokenRes.ok) {
         setError("Failed to get auth token");
         return;
@@ -103,6 +108,7 @@ export default function NewMatchPage() {
           black_ai_id: blackId,
           time_control: "5+0",
         }),
+        signal: AbortSignal.timeout(15000),
       });
 
       if (res.ok) {

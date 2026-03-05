@@ -86,7 +86,9 @@ export default function MatchPage() {
   useEffect(() => {
     async function loadMatch() {
       try {
-        const res = await fetch(`${API_BASE}/api/v1/matches/${matchId}`);
+        const res = await fetch(`${API_BASE}/api/v1/matches/${matchId}`, {
+          signal: AbortSignal.timeout(10000),
+        });
         if (res.ok) {
           const data = await res.json();
           setMatchInfo({
@@ -194,7 +196,9 @@ export default function MatchPage() {
     if (moves.length < 2) return;
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/v1/matches/${matchId}/analysis`);
+        const res = await fetch(`${API_BASE}/api/v1/matches/${matchId}/analysis`, {
+          signal: AbortSignal.timeout(10000),
+        });
         if (res.ok) {
           const data = await res.json();
           if (data.opening_name) {
@@ -258,13 +262,16 @@ export default function MatchPage() {
   async function handleStart() {
     setStarting(true);
     try {
-      const tokenRes = await fetch("/api/auth/token");
+      const tokenRes = await fetch("/api/auth/token", {
+        signal: AbortSignal.timeout(5000),
+      });
       if (!tokenRes.ok) return;
       const { token } = await tokenRes.json();
 
       const res = await fetch(`${API_BASE}/api/v1/matches/${matchId}/start`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(10000),
       });
       if (res.ok) {
         setMatchInfo((prev) => ({ ...prev, status: "in_progress" }));
