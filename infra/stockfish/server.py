@@ -1,7 +1,5 @@
 """Minimal Stockfish HTTP wrapper exposing /validate, /evaluate, and /health."""
 
-import asyncio
-import io
 import chess
 import chess.engine
 from fastapi import FastAPI, HTTPException
