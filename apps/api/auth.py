@@ -57,7 +57,7 @@ async def get_current_user(request: Request) -> AuthenticatedUser:
     github_id = payload.get("github_id")
     username = payload.get("username")
     user_id = payload.get("user_id")
-    if not github_id or not username:
+    if not github_id or not username or not user_id:
         raise _error_envelope(request, "UNAUTHORIZED", "Token missing required claims", 401)
 
-    return AuthenticatedUser(id=user_id or "", github_id=str(github_id), username=str(username))
+    return AuthenticatedUser(id=str(user_id), github_id=str(github_id), username=str(username))

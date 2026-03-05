@@ -6,8 +6,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: build-push-${{ github.ref }}
-  cancel-in-progress: true
+  group: build-push-${{ github.sha }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
