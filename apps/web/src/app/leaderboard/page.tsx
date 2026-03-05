@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { apiFetch } from "@/lib/api";
 
 interface LeaderboardEntry {
   ai_id: string;
@@ -14,8 +15,6 @@ interface LeaderboardEntry {
   draws: number;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
-
 export default function LeaderboardPage() {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,8 +22,8 @@ export default function LeaderboardPage() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch(`${API_BASE}/api/v1/leaderboard?limit=50`, {
-          signal: AbortSignal.timeout(10000),
+        const res = await apiFetch("/api/v1/leaderboard?limit=50", {
+          timeoutMs: 10000,
         });
         if (res.ok) {
           const data = await res.json();

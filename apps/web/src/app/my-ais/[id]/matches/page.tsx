@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { apiFetch } from "@/lib/api";
 
 interface MatchEntry {
   id: string;
@@ -16,8 +17,6 @@ interface MatchEntry {
   created_at: string;
   completed_at: string | null;
 }
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 function statusBadge(status: string) {
   switch (status) {
@@ -43,9 +42,9 @@ export default function AIMatchHistoryPage() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch(
-          `${API_BASE}/api/v1/ai-profiles/${aiId}/matches?limit=50`,
-          { signal: AbortSignal.timeout(10000) }
+        const res = await apiFetch(
+          `/api/v1/ai-profiles/${aiId}/matches?limit=50`,
+          { timeoutMs: 10000 }
         );
         if (res.ok) {
           const data = await res.json();

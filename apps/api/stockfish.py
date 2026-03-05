@@ -27,6 +27,7 @@ async def validate_move(fen: str, san: str) -> bool:
                 resp = await client.post(
                     f"{STOCKFISH_URL}/validate",
                     json={"fen": fen, "move": san},
+                    timeout=httpx.Timeout(_CONNECT_TIMEOUT, read=_READ_TIMEOUT),
                 )
                 if resp.status_code == 200:
                     data = resp.json()
@@ -52,6 +53,7 @@ async def evaluate_position(fen: str) -> int | None:
             resp = await client.post(
                 f"{STOCKFISH_URL}/evaluate",
                 json={"fen": fen},
+                timeout=httpx.Timeout(_CONNECT_TIMEOUT, read=_READ_TIMEOUT),
             )
             if resp.status_code == 200:
                 data = resp.json()

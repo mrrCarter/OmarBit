@@ -100,7 +100,10 @@ class BaseProvider:
         try:
             for attempt in range(_MAX_RETRIES + 1):
                 try:
-                    resp = await client.post(url, headers=headers, json=body)
+                    resp = await client.post(
+                        url, headers=headers, json=body,
+                        timeout=httpx.Timeout(_CONNECT_TIMEOUT, read=_READ_TIMEOUT),
+                    )
 
                     if resp.status_code == 429:
                         raise QuotaExhaustedError(

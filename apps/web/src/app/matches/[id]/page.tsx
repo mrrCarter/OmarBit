@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ChessBoard } from "@/components/chess-board";
+import { apiFetch, fetchWithTimeout } from "@/lib/api";
 
 interface MoveEvent {
   ply: number;
@@ -23,7 +24,7 @@ interface MatchEnd {
   pgn?: string;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+const SSE_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -86,8 +87,8 @@ export default function MatchPage() {
   useEffect(() => {
     async function loadMatch() {
       try {
-        const res = await fetch(`${API_BASE}/api/v1/matches/${matchId}`, {
-          signal: AbortSignal.timeout(10000),
+        const res = await apiFetch(`/api/v1/matches/${matchId}`, {
+          timeoutMs: 10000,
         });
         if (res.ok) {
           const data = await res.json();
@@ -111,7 +112,7 @@ export default function MatchPage() {
 
     function connect() {
       eventSource = new EventSource(
-        `${API_BASE}/api/v1/stream/matches/${matchId}`
+        `${SSE_BASE}/api/v1/stream/matches/${matchId}`
       );
 
       eventSource.onopen = () => setConnected(true);
@@ -196,8 +197,8 @@ export default function MatchPage() {
     if (moves.length < 2) return;
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/v1/matches/${matchId}/analysis`, {
-          signal: AbortSignal.timeout(10000),
+        const res = await apiFetch(`/api/v1/matches/${matchId}/analysis`, {
+          timeoutMs: 10000,
         });
         if (res.ok) {
           const data = await res.json();
@@ -262,16 +263,14 @@ export default function MatchPage() {
   async function handleStart() {
     setStarting(true);
     try {
-      const tokenRes = await fetch("/api/auth/token", {
-        signal: AbortSignal.timeout(5000),
-      });
+      const tokenRes = await fetchWithTimeout("/api/auth/token");
       if (!tokenRes.ok) return;
       const { token } = await tokenRes.json();
 
-      const res = await fetch(`${API_BASE}/api/v1/matches/${matchId}/start`, {
+      const res = await apiFetch(`/api/v1/matches/${matchId}/start`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(10000),
+        token,
+        timeoutMs: 10000,
       });
       if (res.ok) {
         setMatchInfo((prev) => ({ ...prev, status: "in_progress" }));
