@@ -156,39 +156,17 @@ Key items completed:
 
 ---
 
-## Phase E — AI Profile Management & User Dashboard (PR-E)
+## Phase E — AI Profile Management & User Dashboard (PR-E) ✅ MERGED
 **Goal:** Users can manage their AIs, view stats, edit/delete profiles.
+**PR:** #12 — Merged 2026-03-05
+**Omar Gate:** PASSED first try (P0=0, P1=0)
 
-### AI Profile Pages
-- [x] **My AIs page** (/my-ais) — list user's AI profiles with:
-  - Display name, provider, model, style
-  - Active/inactive toggle
-  - Delete button (with confirmation)
-  - Match history link
-  - Loading skeletons, empty state, error handling
-- [x] **Match history page** (/my-ais/[id]/matches) — matches for a specific AI
-  - Win/Loss/Draw indicators
-  - Status badges
-  - Clickable dates link to match viewer
-
-### API Endpoints
-- [x] PATCH /api/v1/ai-profiles/{id} — update profile fields
-  - Allowed: display_name, style, model, custom_instructions, active
-  - Re-validates model if changed
-  - Re-runs safety scanner if instructions change
-  - Dynamic SQL with psycopg.sql for safety
-- [x] DELETE /api/v1/ai-profiles/{id} — soft delete (set active=false)
-  - Active match guard prevents deletion
-- [x] GET /api/v1/ai-profiles/{id}/matches — match history (public, paginated)
-
-### Nav Updates
-- [x] "My AIs" link in nav (when signed in)
-
-### Tests
-- [x] Test auth requirements for PATCH/DELETE
-- [x] Test style validation (422 on invalid)
-- [x] Test endpoint routing (no 405s)
-- [x] Test match history pagination
+Key items completed:
+- [x] PATCH/DELETE /api/v1/ai-profiles/{id} with ownership, validation, safety
+- [x] GET /api/v1/ai-profiles/{id}/matches (public, paginated)
+- [x] /my-ais dashboard with toggle, delete, match history
+- [x] "My AIs" nav link
+- [x] 8 new tests
 
 ---
 
@@ -196,30 +174,34 @@ Key items completed:
 **Goal:** Set up the orchestrator architecture without activating it.
 
 ### Orchestrator Design
-- [ ] Create `orchestrator.py` — LLM that oversees matches:
-  - Detects opening names (from opening_book.py)
-  - Identifies game phase transitions
-  - Generates spectator commentary ("White is building a strong kingside attack")
-  - References famous games ("This position resembles Kasparov vs. Deep Blue, 1997")
-  - Reports win probability based on eval + position
-- [ ] Feature-flagged: `orchestrator_enabled` (default: false)
-- [ ] Uses gpt-4o-mini for cost efficiency
-- [ ] Called every 5 moves (not every ply) to reduce cost
-- [ ] Publishes `commentary` SSE events
+- [x] `orchestrator.py` — gpt-4o-mini commentary engine
+  - Position analysis, opening detection, tension assessment
+  - Commentary every 5 plies (configurable COMMENTARY_INTERVAL)
+  - References famous games/patterns in system prompt
+  - 500 char max per commentary entry
+- [x] Feature-flagged: `orchestrator_enabled` (default: false)
+- [x] Publishes `commentary` SSE events
+- [x] Integrated into game_loop.py (non-blocking, best-effort)
 
 ### Data Model
-- [ ] Add `match_commentary` table:
-  - match_id, ply_range, commentary_text, opening_name, game_phase, created_at
-- [ ] Store orchestrator outputs for replay
+- [x] Migration 003: `match_commentary` table
+  - match_id, ply_start, ply_end, commentary, opening_name, game_phase
+- [x] `persist_commentary()` for storage
+- [x] GET /api/v1/matches/{id}/commentary endpoint
 
-### Frontend Scaffold
-- [ ] Add "Commentary" tab in match viewer (hidden behind feature flag)
-- [ ] Display orchestrator insights when available
+### Frontend
+- [x] Commentary panel in match viewer (amber-themed)
+  - Shows last 5 entries, auto-updates via SSE
+  - Displays phase and tension indicators
+- [x] SSE `commentary` event listener
 
 ### Tests
-- [ ] Test orchestrator prompt assembly
-- [ ] Test commentary SSE event handling
-- [ ] Test feature flag gating
+- [x] Test interval logic (at/between/zero)
+- [x] Test successful commentary generation
+- [x] Test feature flag gating (disabled → None)
+- [x] Test API error handling (returns None)
+- [x] Test commentary truncation (500 chars)
+- [x] Test no API key (returns None)
 
 ---
 

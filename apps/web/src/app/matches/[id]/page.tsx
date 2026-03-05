@@ -67,6 +67,9 @@ export default function MatchPage() {
   const [opening, setOpening] = useState<{ name: string; eco: string } | null>(null);
   const [pgn, setPgn] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [commentary, setCommentary] = useState<
+    { ply: number; commentary: string; phase?: string; tension?: string }[]
+  >([]);
 
   const moveListRef = useRef<HTMLDivElement>(null);
 
@@ -132,6 +135,14 @@ export default function MatchPage() {
           black_name: data.black_name ?? prev.black_name,
           status: "in_progress",
         }));
+      });
+
+      eventSource.addEventListener("commentary", (e) => {
+        const data = JSON.parse(e.data);
+        setCommentary((prev) => {
+          if (prev.some((c) => c.ply === data.ply)) return prev;
+          return [...prev, data];
+        });
       });
 
       eventSource.addEventListener("match_end", (e) => {
@@ -583,6 +594,27 @@ export default function MatchPage() {
               )}
             </div>
           </div>
+
+          {/* Spectator Commentary */}
+          {commentary.length > 0 && (
+            <div className="mt-3 flex flex-col gap-0.5 rounded border border-amber-900/30 bg-amber-950/20 p-2">
+              <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-amber-600">
+                Commentary
+              </h3>
+              <div className="max-h-[120px] space-y-1.5 overflow-y-auto">
+                {commentary.slice(-5).map((c) => (
+                  <div key={c.ply} className="text-xs">
+                    <p className="text-amber-200/80">{c.commentary}</p>
+                    {c.phase && (
+                      <span className="text-[10px] text-amber-700">
+                        {c.phase} {c.tension === "critical" ? " — Critical moment!" : ""}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Match result */}
           {matchEnd && (

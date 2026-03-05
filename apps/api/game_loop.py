@@ -24,6 +24,12 @@ from elo import DEFAULT_RATING, calculate_new_ratings
 from encryption import decrypt_api_key
 from match_engine import can_transition
 from move_orchestrator import orchestrate_move
+from orchestrator import (
+    COMMENTARY_INTERVAL,
+    generate_commentary,
+    persist_commentary,
+    should_generate_commentary,
+)
 from stockfish import evaluate_position
 
 logger = logging.getLogger(__name__)
@@ -471,6 +477,37 @@ async def play_match(match_id: str) -> None:
                 "white_time": round(clock.white_time, 1),
                 "black_time": round(clock.black_time, 1),
             })
+
+            # Generate spectator commentary (every N plies, feature-flagged)
+            if should_generate_commentary(ply):
+                san_list = [m.san for m in board.move_stack]
+                from opening_book import detect_opening
+
+                detected = detect_opening(san_list)
+                commentary_result = await generate_commentary(
+                    fen=board.fen(),
+                    recent_moves=san_list,
+                    opening_name=detected.name if detected else None,
+                    eval_cp=eval_cp,
+                    white_name=white_profile["display_name"],
+                    black_name=black_profile["display_name"],
+                    ply=ply,
+                )
+                if commentary_result:
+                    await persist_commentary(
+                        match_id=match_id,
+                        ply_start=max(1, ply - COMMENTARY_INTERVAL + 1),
+                        ply_end=ply,
+                        commentary=commentary_result["commentary"],
+                        opening_name=detected.name if detected else None,
+                        game_phase=commentary_result.get("phase"),
+                    )
+                    await _publish_event(match_id, "commentary", {
+                        "ply": ply,
+                        "commentary": commentary_result["commentary"],
+                        "phase": commentary_result.get("phase"),
+                        "tension": commentary_result.get("tension"),
+                    })
 
             # Small delay to prevent overwhelming providers
             await asyncio.sleep(0.1)
