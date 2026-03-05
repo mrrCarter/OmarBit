@@ -1,14 +1,31 @@
 import datetime
 import os
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-app = FastAPI(title="OmarBit API", version="0.1.0")
+from db import close_pool, init_pool
+from routers.ai_profiles import router as ai_profiles_router
+from routers.feature_flags import router as feature_flags_router
 
 ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+
+SKIP_DB = os.getenv("SKIP_DB", "false").lower() == "true"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if not SKIP_DB:
+        await init_pool()
+    yield
+    if not SKIP_DB:
+        await close_pool()
+
+
+app = FastAPI(title="OmarBit API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -47,3 +64,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+app.include_router(feature_flags_router)
+app.include_router(ai_profiles_router)
