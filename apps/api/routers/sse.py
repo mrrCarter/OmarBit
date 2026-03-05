@@ -1,10 +1,19 @@
 import asyncio
 import json
+import uuid as uuid_mod
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from db import get_conn
+
+
+def _validate_uuid(value: str) -> str:
+    """Validate and normalize a UUID string."""
+    try:
+        return str(uuid_mod.UUID(value))
+    except ValueError:
+        raise ValueError(f"Invalid UUID: {value[:50]}")
 
 router = APIRouter(prefix="/api/v1", tags=["sse"])
 
@@ -81,6 +90,13 @@ def _sse_event(event_type: str, data: dict) -> str:
 
 @router.get("/stream/matches/{match_id}")
 async def stream_match(match_id: str, request: Request) -> StreamingResponse:
+    try:
+        match_id = _validate_uuid(match_id)
+    except ValueError:
+        return StreamingResponse(
+            iter([_sse_event("error", {"message": "Invalid match ID"})]),
+            media_type="text/event-stream",
+        )
     return StreamingResponse(
         _match_event_generator(match_id, request),
         media_type="text/event-stream",
