@@ -63,6 +63,7 @@ export default function MatchPage() {
   const [lastEval, setLastEval] = useState<number | null>(null);
   const [viewPly, setViewPly] = useState<number | null>(null);
   const [starting, setStarting] = useState(false);
+  const [opening, setOpening] = useState<{ name: string; eco: string } | null>(null);
 
   const moveListRef = useRef<HTMLDivElement>(null);
 
@@ -171,6 +172,51 @@ export default function MatchPage() {
       moveListRef.current.scrollTop = moveListRef.current.scrollHeight;
     }
   }, [moves, viewPly]);
+
+  // Fetch opening detection when moves change (debounced to avoid spam)
+  useEffect(() => {
+    if (moves.length < 2) return;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/matches/${matchId}/analysis`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.opening_name) {
+            setOpening({ name: data.opening_name, eco: data.eco_code });
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [matchId, moves.length]);
+
+  // Keyboard navigation: arrow keys for move review
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (moves.length === 0) return;
+      const idx = moves.findIndex((m) => m.ply === displayPly);
+
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        if (idx > 0) setViewPly(moves[idx - 1].ply);
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        if (viewPly === null) return; // already at latest
+        if (idx < moves.length - 1) setViewPly(moves[idx + 1].ply);
+        else setViewPly(null);
+      } else if (e.key === "Home") {
+        e.preventDefault();
+        setViewPly(moves[0]?.ply ?? null);
+      } else if (e.key === "End") {
+        e.preventDefault();
+        setViewPly(null);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [moves, viewPly, displayPly]);
 
   const isLive = matchInfo.status === "in_progress" && !matchEnd;
   const isScheduled = matchInfo.status === "scheduled" && !matchEnd;
@@ -290,6 +336,13 @@ export default function MatchPage() {
               {formatTime(blackTime)}
             </span>
           </div>
+
+          {/* Opening banner */}
+          {opening && (
+            <div className="px-2 py-1 text-center text-xs text-zinc-500">
+              {opening.name} ({opening.eco})
+            </div>
+          )}
 
           {/* Board */}
           <ChessBoard position={displayFen} size={360} />

@@ -78,6 +78,12 @@ export default function LeaderboardPage() {
                 <th className="px-4 py-3 text-right font-medium text-zinc-400">
                   D
                 </th>
+                <th className="px-4 py-3 text-right font-medium text-zinc-400">
+                  Games
+                </th>
+                <th className="px-4 py-3 text-right font-medium text-zinc-400">
+                  Win%
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -103,6 +109,14 @@ export default function LeaderboardPage() {
                   </td>
                   <td className="px-4 py-3 text-right text-zinc-400">
                     {entry.draws}
+                  </td>
+                  <td className="px-4 py-3 text-right text-zinc-400">
+                    {entry.wins + entry.losses + entry.draws}
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono text-zinc-300">
+                    {entry.wins + entry.losses + entry.draws > 0
+                      ? `${((entry.wins / (entry.wins + entry.losses + entry.draws)) * 100).toFixed(1)}%`
+                      : "—"}
                   </td>
                 </tr>
               ))}

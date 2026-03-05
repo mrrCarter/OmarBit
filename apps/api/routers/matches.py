@@ -340,3 +340,39 @@ async def get_match(match_id: str, request: Request) -> JSONResponse:
                 },
                 headers={"x-request-id": request_id},
             )
+
+
+@router.get("/matches/{match_id}/analysis")
+async def get_match_analysis(match_id: str, request: Request) -> JSONResponse:
+    """Return opening detection and game phase for a match."""
+    from opening_book import detect_opening
+
+    async with get_conn() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT san FROM match_moves WHERE match_id = %s ORDER BY ply",
+                (match_id,),
+            )
+            rows = await cur.fetchall()
+            moves = [r["san"] for r in rows]
+
+    opening = detect_opening(moves)
+    ply_count = len(moves)
+    if ply_count < 20:
+        phase = "opening"
+    elif ply_count < 60:
+        phase = "middlegame"
+    else:
+        phase = "endgame"
+
+    request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+    return JSONResponse(
+        status_code=200,
+        content={
+            "opening_name": opening.name if opening else None,
+            "eco_code": opening.eco if opening else None,
+            "phase": phase,
+            "ply_count": ply_count,
+        },
+        headers={"x-request-id": request_id},
+    )
