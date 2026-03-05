@@ -194,13 +194,12 @@ async def _update_elo(
     """Update ELO ratings transactionally. Per spec: single BEGIN...COMMIT block."""
     async with get_conn() as conn:
         async with conn.cursor() as cur:
-            # Get current ratings (INSERT default if missing)
-            for ai_id in (white_ai_id, black_ai_id):
-                await cur.execute(
-                    "INSERT INTO elo_ratings (ai_id) VALUES (%s) "
-                    "ON CONFLICT (ai_id) DO NOTHING",
-                    (ai_id,),
-                )
+            # Ensure both players have ELO rows (batch upsert)
+            await cur.executemany(
+                "INSERT INTO elo_ratings (ai_id) VALUES (%s) "
+                "ON CONFLICT (ai_id) DO NOTHING",
+                [(white_ai_id,), (black_ai_id,)],
+            )
 
             await cur.execute(
                 "SELECT ai_id, rating FROM elo_ratings "

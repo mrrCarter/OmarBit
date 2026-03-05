@@ -33,7 +33,13 @@ async def _redis_event_generator(match_id: str, request: Request):
     """SSE generator using Redis pub/sub for real-time match events.
 
     Falls back to DB polling if Redis is unavailable.
+    Bounded: exits after SSE_MAX_DURATION_S (default 30 min).
     """
+    import time
+
+    max_duration = float(os.environ.get("SSE_MAX_DURATION_S", "1800"))
+    deadline = time.monotonic() + max_duration
+
     try:
         import redis.asyncio as aioredis
 
@@ -45,8 +51,8 @@ async def _redis_event_generator(match_id: str, request: Request):
         async for event in _catchup_moves(match_id):
             yield event
 
-        # Then listen for real-time events
-        while True:
+        # Then listen for real-time events (bounded by deadline)
+        while time.monotonic() < deadline:
             if await request.is_disconnected():
                 break
 
@@ -126,10 +132,14 @@ async def _catchup_moves(match_id: str):
 
 
 async def _polling_event_generator(match_id: str, request: Request):
-    """Fallback SSE generator using DB polling."""
+    """Fallback SSE generator using DB polling. Bounded by deadline."""
+    import time
+
+    max_duration = float(os.environ.get("SSE_MAX_DURATION_S", "1800"))
+    deadline = time.monotonic() + max_duration
     last_ply = -1
 
-    while True:
+    while time.monotonic() < deadline:
         if await request.is_disconnected():
             break
 
