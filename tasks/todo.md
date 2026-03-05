@@ -6,51 +6,23 @@ This plan covers everything needed to make OmarBit a fully functional, polished 
 
 ---
 
-## Phase A — AI Profile Schema Expansion (PR-A)
+## Phase A — AI Profile Schema Expansion (PR-A) ✅ MERGED
 **Goal:** Let users pick specific models, add custom instructions, upload instruction files.
+**PR:** #8 — Merged 2026-03-05
+**Omar Gate:** PASSED (P0=0, P1=0, P2=30, P3=125)
 
-### Database Migration (002_ai_profile_expansion.sql)
-- [ ] Add `model` column to ai_profiles (TEXT NOT NULL DEFAULT '')
-  - Stores exact model ID: "claude-sonnet-4-20250514", "gpt-4o", "gpt-4o-mini", etc.
-- [ ] Add `custom_instructions` column (TEXT, max 15000 chars, nullable)
-- [ ] Add `instruction_file_hash` column (TEXT, nullable) — SHA256 of uploaded .md file
-- [ ] Add `instruction_file_content` column (TEXT, nullable) — stored content of uploaded file
-- [ ] Add `model_cost_per_1k_input` column (NUMERIC(10,6), nullable) — cost tracking
-- [ ] Add `model_cost_per_1k_output` column (NUMERIC(10,6), nullable)
-
-### Model Registry (providers/models.py)
-- [ ] Create model registry with all available models per provider:
-  - Claude: claude-sonnet-4-20250514, claude-haiku-4-5-20251001, claude-sonnet-4-6
-  - GPT: gpt-4o, gpt-4o-mini, gpt-4.1, gpt-4.1-mini, gpt-4.1-nano
-  - Grok: grok-3, grok-3-mini
-  - Gemini: gemini-2.0-flash, gemini-2.5-pro, gemini-2.5-flash
-- [ ] Include cost per 1K input/output tokens for each model
-- [ ] GET /api/v1/providers/models endpoint — returns available models with costs
-- [ ] Provider adapters read model from ai_profile instead of hardcoding
-
-### API Key Validation
-- [ ] On registration, make a minimal test call to the provider with the given API key
-  - Claude: POST /v1/messages with max_tokens=1, trivial prompt
-  - GPT: POST /v1/chat/completions with max_tokens=1
-  - Grok: POST /v1/chat/completions with max_tokens=1
-  - Gemini: POST /v1beta/models/{model}:generateContent with trivial prompt
-- [ ] Return clear error if key is invalid (401/403) or quota exhausted (429)
-- [ ] Key validation is async, non-blocking — timeout 5s
-
-### Registration UI Updates (register-ai/page.tsx)
-- [ ] Model dropdown — populated from GET /providers/models, filtered by selected provider
-- [ ] Show cost per model inline (e.g., "$2.50/1M input, $10/1M output")
-- [ ] Custom instructions textarea (15000 char limit, scrollable, char counter)
-- [ ] File upload button (.md files only, max 50KB) — preview content after upload
-- [ ] Validation: provider + model must match registry
-- [ ] Loading spinner during API key validation
-
-### Tests
-- [ ] Test model registry returns correct models per provider
-- [ ] Test API key validation (mock provider responses)
-- [ ] Test migration up/down
-- [ ] Test custom_instructions length validation
-- [ ] Test file upload content extraction
+All items completed:
+- [x] Migration 002: model, custom_instructions, instruction_file columns
+- [x] Model registry with costs for Claude, GPT, Grok, Gemini
+- [x] GET /api/v1/providers/models endpoint
+- [x] Provider adapters parameterized (model from match_context)
+- [x] API key validation on registration (test call per provider)
+- [x] Registration UI: model picker, cost display, instructions textarea, .md upload
+- [x] Leaderboard: model column (backend + frontend)
+- [x] System prompt hardened with chess-only lockdown
+- [x] SQL injection fixes (psycopg.sql for dynamic queries)
+- [x] N+1 batch fix (executemany for ELO upserts)
+- [x] SSE loop bounded with deadline
 
 ---
 

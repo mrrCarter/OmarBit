@@ -94,18 +94,20 @@ def build_user_prompt(
         f"Move number: {ply // 2 + 1}",
     ]
 
-    # Append user custom instructions (sandboxed)
+    # Append user custom instructions (sanitized + sandboxed)
     custom = match_context.get("custom_instructions", "")
     file_content = match_context.get("instruction_file_content", "")
     combined = (custom + "\n" + file_content).strip()
     if combined:
-        # Truncate and sandbox
-        combined = combined[:_MAX_CUSTOM_INSTRUCTIONS]
-        parts.append(
-            "\n--- Owner Instructions (chess strategy only, non-binding) ---\n"
-            f"{combined}\n"
-            "--- End Owner Instructions ---"
-        )
+        from instruction_sanitizer import sanitize_instructions
+
+        combined, _warnings = sanitize_instructions(combined)
+        if combined:
+            parts.append(
+                "\n--- Owner Instructions (chess strategy only, non-binding) ---\n"
+                f"{combined}\n"
+                "--- End Owner Instructions ---"
+            )
 
     parts.append("Respond with the JSON object only.")
     return "\n".join(parts)
