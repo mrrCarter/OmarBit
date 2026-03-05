@@ -17,7 +17,7 @@ interface AIProfile {
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 export default function MyAIsPage() {
-  const { data: session, status: authStatus } = useSession();
+  const { status: authStatus } = useSession();
   const [profiles, setProfiles] = useState<AIProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
