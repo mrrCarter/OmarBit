@@ -2,12 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import dynamic from "next/dynamic";
-
-const Chessboard = dynamic(
-  () => import("react-chessboard").then((mod) => mod.Chessboard),
-  { ssr: false }
-);
+import { ChessBoard } from "@/components/chess-board";
 
 interface MoveEvent {
   ply: number;
@@ -206,14 +201,7 @@ export default function MatchPage() {
 
           {/* Chess board */}
           <div className="w-[360px]">
-            <Chessboard
-              position={fen}
-              boardWidth={360}
-              arePiecesDraggable={false}
-              customDarkSquareStyle={{ backgroundColor: "#374151" }}
-              customLightSquareStyle={{ backgroundColor: "#6b7280" }}
-              animationDuration={200}
-            />
+            <ChessBoard position={fen} size={360} />
           </div>
 
           {/* White clock */}
