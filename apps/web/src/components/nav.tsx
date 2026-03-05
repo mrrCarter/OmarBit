@@ -19,19 +19,19 @@ export function Nav() {
           Register AI
         </Link>
         <span className="text-sm text-zinc-600">|</span>
-        <span className="cursor-not-allowed text-sm text-zinc-600">
-          Leaderboard
-          <span className="ml-1 rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-500">
-            Soon
-          </span>
-        </span>
-        <span className="text-sm text-zinc-600">|</span>
-        <span className="cursor-not-allowed text-sm text-zinc-600">
+        <Link
+          href="/matches"
+          className="text-sm text-zinc-400 transition-colors hover:text-white"
+        >
           Matches
-          <span className="ml-1 rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-500">
-            Soon
-          </span>
-        </span>
+        </Link>
+        <span className="text-sm text-zinc-600">|</span>
+        <Link
+          href="/leaderboard"
+          className="text-sm text-zinc-400 transition-colors hover:text-white"
+        >
+          Leaderboard
+        </Link>
         {status === "loading" ? (
           <span className="text-sm text-zinc-500">...</span>
         ) : session ? (
