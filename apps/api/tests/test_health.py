@@ -1,3 +1,7 @@
+import os
+
+os.environ["SKIP_DB"] = "true"
+
 from fastapi.testclient import TestClient
 
 from main import app
