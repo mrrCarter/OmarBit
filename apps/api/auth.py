@@ -9,7 +9,10 @@ JWT_ALGORITHM = "HS256"
 
 
 def _get_secret() -> str:
-    return os.getenv("NEXTAUTH_SECRET", "")
+    secret = os.getenv("NEXTAUTH_SECRET", "")
+    if not secret:
+        raise RuntimeError("NEXTAUTH_SECRET environment variable is required")
+    return secret
 
 
 class AuthenticatedUser:
@@ -40,8 +43,6 @@ async def get_current_user(request: Request) -> AuthenticatedUser:
 
     token = auth_header[7:]
     secret = _get_secret()
-    if not secret:
-        raise _error_envelope(request, "SERVER_CONFIG_ERROR", "Auth secret not configured", 500)
 
     try:
         payload = jwt.decode(
