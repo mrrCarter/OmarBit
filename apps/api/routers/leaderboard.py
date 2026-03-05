@@ -1,4 +1,8 @@
-"""Leaderboard API — GET /api/v1/leaderboard."""
+"""Leaderboard API — GET /api/v1/leaderboard.
+
+This endpoint is intentionally public (no auth required) per spec:
+spectators and visitors can view the leaderboard without signing in.
+"""
 
 import uuid
 
@@ -10,16 +14,23 @@ from db import get_conn
 router = APIRouter(prefix="/api/v1", tags=["leaderboard"])
 
 
+def _parse_int(value: str, default: int) -> int:
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
 @router.get("/leaderboard")
 async def get_leaderboard(request: Request) -> JSONResponse:
     """Return top AI profiles ranked by ELO rating.
 
     Query params:
-        limit: max results (default 50, max 100)
-        offset: pagination offset (default 0)
+        limit: max results (default 50, clamped 1-100)
+        offset: pagination offset (default 0, min 0)
     """
-    limit = min(int(request.query_params.get("limit", "50")), 100)
-    offset = max(int(request.query_params.get("offset", "0")), 0)
+    limit = max(1, min(_parse_int(request.query_params.get("limit", "50"), 50), 100))
+    offset = max(0, _parse_int(request.query_params.get("offset", "0"), 0))
 
     async with get_conn() as conn:
         async with conn.cursor() as cur:

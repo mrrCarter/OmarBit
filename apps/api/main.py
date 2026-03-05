@@ -1,5 +1,6 @@
 import datetime
 import os
+import re
 import uuid
 from contextlib import asynccontextmanager
 
@@ -40,9 +41,13 @@ app.add_middleware(
 )
 
 
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
+
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
-    request_id = request.headers.get("x-request-id", str(uuid.uuid4()))
+    client_id = request.headers.get("x-request-id", "")
+    request_id = client_id if _UUID_RE.match(client_id) else str(uuid.uuid4())
     request.state.request_id = request_id
     response = await call_next(request)
     response.headers["x-request-id"] = request_id

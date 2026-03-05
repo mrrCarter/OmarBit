@@ -1,11 +1,15 @@
-"""Replay API — GET /api/v1/matches/{id}/replay."""
+"""Replay API — GET /api/v1/matches/{id}/replay.
+
+This endpoint is intentionally public (no auth required) per spec:
+spectators can view replays of completed matches without signing in.
+"""
 
 import datetime
 import hashlib
 import json
 import uuid as uuid_mod
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from db import get_conn
@@ -21,8 +25,6 @@ def _validate_uuid(value: str) -> str:
 
 
 def _error_envelope(request: Request, code: str, message: str, status: int):
-    from fastapi import HTTPException
-
     request_id = getattr(request.state, "request_id", str(uuid_mod.uuid4()))
     raise HTTPException(
         status_code=status,
