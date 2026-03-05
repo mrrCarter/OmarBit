@@ -44,7 +44,12 @@ async def get_current_user(request: Request) -> AuthenticatedUser:
         raise _error_envelope(request, "SERVER_CONFIG_ERROR", "Auth secret not configured", 500)
 
     try:
-        payload = jwt.decode(token, secret, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(
+            token, secret, algorithms=[JWT_ALGORITHM],
+            issuer="omarbit-web",
+            audience="omarbit-api",
+            options={"require_iat": True, "require_exp": True},
+        )
     except JWTError:
         raise _error_envelope(request, "UNAUTHORIZED", "Invalid or expired token", 401)
 

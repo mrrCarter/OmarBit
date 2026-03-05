@@ -43,6 +43,8 @@ export async function GET() {
     user_id: userId,
   })
     .setProtectedHeader({ alg: "HS256" })
+    .setIssuer("omarbit-web")
+    .setAudience("omarbit-api")
     .setExpirationTime("8h")
     .setIssuedAt()
     .sign(new TextEncoder().encode(secret));
