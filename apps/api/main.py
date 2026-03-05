@@ -15,6 +15,7 @@ from routers.leaderboard import router as leaderboard_router
 from routers.matches import router as matches_router
 from routers.replay import router as replay_router
 from routers.sse import router as sse_router
+from routers.tournaments import router as tournaments_router
 
 ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 
@@ -81,3 +82,4 @@ app.include_router(matches_router)
 app.include_router(sse_router)
 app.include_router(leaderboard_router)
 app.include_router(replay_router)
+app.include_router(tournaments_router)
