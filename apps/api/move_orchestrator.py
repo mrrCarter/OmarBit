@@ -6,6 +6,8 @@ Implements the forfeit-on-unrecoverable-error flow per spec Phase 3.
 
 import logging
 
+import httpx
+
 from moderation import moderate_chat_line
 from providers.base import (
     InvalidResponseError,
@@ -52,6 +54,7 @@ async def orchestrate_move(
     style: str,
     match_context: dict,
     strike_count: int = 0,
+    client: httpx.AsyncClient | None = None,
 ) -> MoveResult:
     """Request, validate, and moderate a single move.
 
@@ -80,6 +83,7 @@ async def orchestrate_move(
                 legal_moves=legal_moves,
                 style=style,
                 match_context=match_context,
+                client=client,
             )
         except QuotaExhaustedError as exc:
             logger.error("Quota exhausted for %s: %s", provider_name, exc)

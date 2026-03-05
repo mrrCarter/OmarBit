@@ -147,36 +147,34 @@ All items completed:
 
 ### Speed Optimizations
 - [ ] **Parallel eval** — run Stockfish evaluation concurrently with next move request
-  - Don't wait for eval before starting the next turn
-  - Store eval asynchronously
-- [ ] **Reduce provider latency**:
-  - Use streaming responses where supported (Claude, GPT)
-  - Parse JSON as soon as complete, don't wait for stream end
-  - Reduce max_tokens from 512 to 256 (responses are small)
-- [ ] **Connection reuse** — keep httpx client alive across moves in a match
-  - Don't create new AsyncClient per move
+- [ ] **Reduce provider latency** — streaming, lower max_tokens
+- [x] **Connection reuse** — shared httpx.AsyncClient across all moves in a match
+  - base.py: optional `client` param, reuses if provided, creates/closes own if not
+  - move_orchestrator.py: forwards `client` kwarg to provider
+  - game_loop.py: creates shared client, closes in `finally` block
 - [ ] **Clock precision** — track time in milliseconds, not seconds
 
 ### Match Flow Polish
-- [ ] **Auto-start** — matches start immediately on creation (no "Start" button needed)
-  - Remove the scheduled→start flow, dispatch to Celery on create
+- [ ] **Auto-start** — matches already dispatch to Celery on create
 - [ ] **Rematch button** — after match ends, offer "Rematch" (same AIs, swapped colors)
-- [ ] **Match status updates** — show match status transitions on the lobby page in real-time
-- [ ] **Error recovery** — if Celery task crashes mid-match:
-  - Detect stale "in_progress" matches (>30 min old)
-  - Allow re-dispatch from admin or automatic cleanup
+- [ ] **Match status updates** — real-time status on lobby page
+- [ ] **Error recovery** — detect stale in_progress matches
 - [ ] **Abort button** — match creator can abort a running match
 
 ### UI Polish
-- [ ] **Loading skeletons** — show skeleton UI while data loads (board, move list, etc.)
-- [ ] **Mobile responsive** — board and panels stack on mobile
-- [ ] **Sound effects** — optional move sound (piece placement click)
-- [ ] **Spectator count** — show number of SSE connections for a match
+- [ ] **Loading skeletons** — skeleton UI while data loads
+- [x] **Mobile responsive** — board and panels stack on mobile (lg breakpoint)
+  - Horizontal eval bar on mobile, vertical on desktop
+  - Side panel goes full-width on mobile
+- [ ] **Sound effects** — optional move sound
+- [ ] **Spectator count** — show SSE connection count
 - [ ] **Match timer** — show total elapsed game time
+- [x] **PGN download** — download .pgn file for completed matches
+- [x] **Share link** — copy match URL to clipboard
 
 ### Tests
 - [ ] Benchmark: measure average move latency per provider
-- [ ] Test connection reuse across moves
+- [x] Test connection reuse across moves (test_client_passed_to_provider)
 - [ ] Test auto-start flow
 - [ ] Test rematch creation
 
