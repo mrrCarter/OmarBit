@@ -1,16 +1,23 @@
 """API key validation — lightweight test call to verify a key works."""
 
 import logging
+import os
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# Skip real API calls in local dev (set SKIP_KEY_VALIDATION=true)
+_SKIP_VALIDATION = os.getenv("SKIP_KEY_VALIDATION", "").lower() == "true"
 
 _TIMEOUT = httpx.Timeout(5.0, read=10.0)
 
 
 async def validate_api_key(provider: str, model: str, api_key: str) -> tuple[bool, str]:
     """Test an API key with a minimal request. Returns (valid, error_message)."""
+    if _SKIP_VALIDATION:
+        logger.info("Skipping API key validation (SKIP_KEY_VALIDATION=true)")
+        return True, ""
     try:
         if provider == "claude":
             return await _validate_claude(api_key, model)
