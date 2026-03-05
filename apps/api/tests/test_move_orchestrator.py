@@ -188,3 +188,26 @@ def test_move_result_defaults():
     assert r.san == ""
     assert r.forfeit is False
     assert r.forfeit_reason == ""
+
+
+@pytest.mark.asyncio
+@patch("move_orchestrator.validate_move", new_callable=AsyncMock, return_value=True)
+@patch("move_orchestrator.get_provider")
+async def test_client_passed_to_provider(mock_get_provider, mock_validate):
+    """Verify that a shared httpx client is forwarded to the provider."""
+    mock_provider = AsyncMock()
+    mock_provider.request_move.return_value = MoveResponse(
+        san="e4", think_summary="test", chat_line=""
+    )
+    mock_get_provider.return_value = mock_provider
+
+    sentinel_client = object()  # any object to verify identity
+
+    result = await orchestrate_move(
+        "claude", "sk-test", _FEN, _LEGAL, "balanced", _CONTEXT, client=sentinel_client
+    )
+
+    assert result.san == "e4"
+    # Verify the client kwarg was passed through
+    call_kwargs = mock_provider.request_move.call_args.kwargs
+    assert call_kwargs["client"] is sentinel_client

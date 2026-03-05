@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 
 import chess
 import chess.pgn
+import httpx
 
 from db import get_conn
 from elo import DEFAULT_RATING, calculate_new_ratings
@@ -329,6 +330,9 @@ async def play_match(match_id: str) -> None:
     # Strike counters for moderation (per AI per match)
     strike_counts = {white_ai_id: 0, black_ai_id: 0}
 
+    # Shared httpx client for connection reuse across all moves in this match
+    http_client = httpx.AsyncClient(timeout=httpx.Timeout(3.0, read=20.0))
+
     ply = 0
     try:
         while not board.is_game_over(claim_draw=True) and ply < MAX_PLIES:
@@ -385,6 +389,7 @@ async def play_match(match_id: str) -> None:
                 style=active_profile["style"],
                 match_context=match_context,
                 strike_count=strike_counts[active_ai_id],
+                client=http_client,
             )
 
             if move_result.forfeit:
@@ -512,6 +517,8 @@ async def play_match(match_id: str) -> None:
             "reason": "Internal error",
         })
     finally:
+        # Close shared httpx client
+        await http_client.aclose()
         # Zero API keys after use (spec anti-pattern guard)
         white_api_key = ""  # noqa: F841
         black_api_key = ""  # noqa: F841

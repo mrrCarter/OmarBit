@@ -20,6 +20,7 @@ interface MatchEnd {
   winner_ai_id: string | null;
   reason?: string;
   result?: string;
+  pgn?: string;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -64,6 +65,8 @@ export default function MatchPage() {
   const [viewPly, setViewPly] = useState<number | null>(null);
   const [starting, setStarting] = useState(false);
   const [opening, setOpening] = useState<{ name: string; eco: string } | null>(null);
+  const [pgn, setPgn] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const moveListRef = useRef<HTMLDivElement>(null);
 
@@ -88,6 +91,7 @@ export default function MatchPage() {
             black_name: data.black_name ?? data.black_ai_id,
             status: data.status,
           });
+          if (data.pgn) setPgn(data.pgn);
         }
       } catch {
         // ignore
@@ -133,6 +137,7 @@ export default function MatchPage() {
       eventSource.addEventListener("match_end", (e) => {
         const data: MatchEnd = JSON.parse(e.data);
         setMatchEnd(data);
+        if (data.pgn) setPgn(data.pgn);
         setMatchInfo((prev) => ({ ...prev, status: data.status }));
         eventSource?.close();
       });
@@ -222,6 +227,23 @@ export default function MatchPage() {
   const isScheduled = matchInfo.status === "scheduled" && !matchEnd;
   const whitePercent = evalToPercent(lastEval);
 
+  function handleDownloadPgn() {
+    if (!pgn) return;
+    const blob = new Blob([pgn], { type: "application/x-chess-pgn" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `omarbit-${matchId}.pgn`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleCopyLink() {
+    navigator.clipboard.writeText(window.location.href);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
   async function handleStart() {
     setStarting(true);
     try {
@@ -246,7 +268,7 @@ export default function MatchPage() {
   return (
     <div className="flex flex-col items-center gap-4 py-4">
       {/* Status bar */}
-      <div className="flex w-full max-w-[800px] items-center justify-between px-1">
+      <div className="flex w-full max-w-[800px] items-center justify-between px-2 sm:px-1">
         <div className="flex items-center gap-2">
           {isScheduled && (
             <button
@@ -276,16 +298,34 @@ export default function MatchPage() {
           )}
           <span className="text-xs text-zinc-500">5+0 Blitz</span>
         </div>
-        <span
-          className={`h-2 w-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`}
-          title={connected ? "Connected" : "Disconnected"}
-        />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleCopyLink}
+            className="rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+            title="Copy match link"
+          >
+            {copied ? "Copied!" : "Share"}
+          </button>
+          {pgn && (
+            <button
+              onClick={handleDownloadPgn}
+              className="rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+              title="Download PGN"
+            >
+              PGN
+            </button>
+          )}
+          <span
+            className={`h-2 w-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`}
+            title={connected ? "Connected" : "Disconnected"}
+          />
+        </div>
       </div>
 
       {/* Main layout: eval bar | board+clocks | side panel */}
-      <div className="flex gap-4">
-        {/* Vertical eval bar — Lichess style */}
-        <div className="flex flex-col items-center gap-1">
+      <div className="flex flex-col items-center gap-4 lg:flex-row lg:items-start">
+        {/* Vertical eval bar — Lichess style (hidden on mobile) */}
+        <div className="hidden flex-col items-center gap-1 lg:flex">
           <span className="text-[10px] font-bold text-zinc-400">
             {lastEval !== null && lastEval < 0 ? evalLabel(lastEval) : ""}
           </span>
@@ -310,7 +350,7 @@ export default function MatchPage() {
         </div>
 
         {/* Board + player bars */}
-        <div className="flex flex-col">
+        <div className="flex w-full max-w-[360px] flex-col">
           {/* Black player bar */}
           <div
             className={`flex items-center justify-between rounded-t px-3 py-1.5 ${
@@ -318,7 +358,6 @@ export default function MatchPage() {
                 ? "bg-zinc-700"
                 : "bg-zinc-800/60"
             }`}
-            style={{ width: 360 }}
           >
             <div className="flex items-center gap-2">
               <div className="h-3 w-3 rounded-sm bg-zinc-900" />
@@ -347,6 +386,18 @@ export default function MatchPage() {
           {/* Board */}
           <ChessBoard position={displayFen} size={360} />
 
+          {/* Horizontal eval bar — mobile only */}
+          <div className="flex h-3 w-full overflow-hidden rounded-sm lg:hidden">
+            <div
+              className="bg-zinc-100 transition-all duration-500 ease-out"
+              style={{ width: `${whitePercent}%` }}
+            />
+            <div
+              className="bg-zinc-700 transition-all duration-500 ease-out"
+              style={{ width: `${100 - whitePercent}%` }}
+            />
+          </div>
+
           {/* White player bar */}
           <div
             className={`flex items-center justify-between rounded-b px-3 py-1.5 ${
@@ -354,7 +405,6 @@ export default function MatchPage() {
                 ? "bg-zinc-700"
                 : "bg-zinc-800/60"
             }`}
-            style={{ width: 360 }}
           >
             <div className="flex items-center gap-2">
               <div className="h-3 w-3 rounded-sm bg-zinc-200" />
@@ -375,7 +425,7 @@ export default function MatchPage() {
         </div>
 
         {/* Side panel */}
-        <div className="flex w-[260px] flex-col">
+        <div className="flex w-full max-w-[360px] flex-col lg:w-[260px]">
           {/* Move list — Lichess 2-column style */}
           <div
             ref={moveListRef}

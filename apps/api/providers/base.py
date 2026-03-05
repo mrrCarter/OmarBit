@@ -80,17 +80,26 @@ class BaseProvider:
         legal_moves: list[str],
         style: str,
         match_context: dict | None = None,
+        client: httpx.AsyncClient | None = None,
     ) -> MoveResponse:
-        """Request a move from the provider with spec-compliant retry/backoff."""
+        """Request a move from the provider with spec-compliant retry/backoff.
+
+        If `client` is provided, it is reused for connection pooling across
+        moves in the same match. Otherwise a fresh client is created per call.
+        """
         context = match_context or {}
         url, headers, body = self._build_request(api_key, fen, legal_moves, style, context)
 
+        owns_client = client is None
+        if owns_client:
+            client = httpx.AsyncClient(
+                timeout=httpx.Timeout(_CONNECT_TIMEOUT, read=_READ_TIMEOUT),
+            )
+
         last_err: Exception | None = None
-        for attempt in range(_MAX_RETRIES + 1):
-            try:
-                async with httpx.AsyncClient(
-                    timeout=httpx.Timeout(_CONNECT_TIMEOUT, read=_READ_TIMEOUT),
-                ) as client:
+        try:
+            for attempt in range(_MAX_RETRIES + 1):
+                try:
                     resp = await client.post(url, headers=headers, json=body)
 
                     if resp.status_code == 429:
@@ -108,34 +117,37 @@ class BaseProvider:
                     data = resp.json()
                     return self._parse_response(data)
 
-            except QuotaExhaustedError:
-                raise
-            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
-                last_err = exc
-                logger.warning(
-                    "Provider %s attempt %d/%d failed: %s",
-                    self.provider_name,
-                    attempt + 1,
-                    _MAX_RETRIES + 1,
-                    _sanitize_error(exc),
-                )
-            except httpx.HTTPStatusError as exc:
-                last_err = exc
-                logger.warning(
-                    "Provider %s attempt %d/%d HTTP %d",
-                    self.provider_name,
-                    attempt + 1,
-                    _MAX_RETRIES + 1,
-                    exc.response.status_code,
-                )
-            except (KeyError, ValueError, TypeError) as exc:
-                raise InvalidResponseError(
-                    f"{self.provider_name} returned unparseable response: {exc}"
-                ) from exc
+                except QuotaExhaustedError:
+                    raise
+                except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
+                    last_err = exc
+                    logger.warning(
+                        "Provider %s attempt %d/%d failed: %s",
+                        self.provider_name,
+                        attempt + 1,
+                        _MAX_RETRIES + 1,
+                        _sanitize_error(exc),
+                    )
+                except httpx.HTTPStatusError as exc:
+                    last_err = exc
+                    logger.warning(
+                        "Provider %s attempt %d/%d HTTP %d",
+                        self.provider_name,
+                        attempt + 1,
+                        _MAX_RETRIES + 1,
+                        exc.response.status_code,
+                    )
+                except (KeyError, ValueError, TypeError) as exc:
+                    raise InvalidResponseError(
+                        f"{self.provider_name} returned unparseable response: {exc}"
+                    ) from exc
 
-            if attempt < _MAX_RETRIES:
-                backoff = _BACKOFF_SCHEDULE[min(attempt, len(_BACKOFF_SCHEDULE) - 1)]
-                await asyncio.sleep(backoff)
+                if attempt < _MAX_RETRIES:
+                    backoff = _BACKOFF_SCHEDULE[min(attempt, len(_BACKOFF_SCHEDULE) - 1)]
+                    await asyncio.sleep(backoff)
+        finally:
+            if owns_client:
+                await client.aclose()
 
         raise ProviderUnavailableError(
             f"{self.provider_name} unavailable after {_MAX_RETRIES + 1} attempts: "
