@@ -6,7 +6,7 @@ from providers.base import BaseProvider, InvalidResponseError, MoveResponse
 from providers.prompts import SYSTEM_PROMPT, build_user_prompt
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
-OPENAI_MODEL = "gpt-4o"
+OPENAI_DEFAULT_MODEL = "gpt-4o"
 
 
 class GPTProvider(BaseProvider):
@@ -21,13 +21,14 @@ class GPTProvider(BaseProvider):
         match_context: dict,
     ) -> tuple[str, dict, dict]:
         user_prompt = build_user_prompt(fen, legal_moves, style, match_context)
+        model = match_context.get("model") or OPENAI_DEFAULT_MODEL
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
         body = {
-            "model": OPENAI_MODEL,
-            "max_tokens": 512,
+            "model": model,
+            "max_tokens": 256,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},

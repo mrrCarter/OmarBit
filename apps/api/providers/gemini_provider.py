@@ -6,7 +6,7 @@ from providers.base import BaseProvider, InvalidResponseError, MoveResponse
 from providers.prompts import SYSTEM_PROMPT, build_user_prompt
 
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_DEFAULT_MODEL = "gemini-2.0-flash"
 
 
 class GeminiProvider(BaseProvider):
@@ -21,7 +21,8 @@ class GeminiProvider(BaseProvider):
         match_context: dict,
     ) -> tuple[str, dict, dict]:
         user_prompt = build_user_prompt(fen, legal_moves, style, match_context)
-        url = f"{GEMINI_API_BASE}/{GEMINI_MODEL}:generateContent?key={api_key}"
+        model = match_context.get("model") or GEMINI_DEFAULT_MODEL
+        url = f"{GEMINI_API_BASE}/{model}:generateContent?key={api_key}"
         headers = {"Content-Type": "application/json"}
         body = {
             "contents": [
@@ -32,7 +33,7 @@ class GeminiProvider(BaseProvider):
                 },
             ],
             "generationConfig": {
-                "maxOutputTokens": 512,
+                "maxOutputTokens": 256,
                 "responseMimeType": "application/json",
             },
         }

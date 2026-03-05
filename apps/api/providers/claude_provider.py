@@ -6,7 +6,7 @@ from providers.base import BaseProvider, InvalidResponseError, MoveResponse
 from providers.prompts import SYSTEM_PROMPT, build_user_prompt
 
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_MODEL = "claude-sonnet-4-20250514"
+ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-20250514"
 
 
 class ClaudeProvider(BaseProvider):
@@ -21,14 +21,15 @@ class ClaudeProvider(BaseProvider):
         match_context: dict,
     ) -> tuple[str, dict, dict]:
         user_prompt = build_user_prompt(fen, legal_moves, style, match_context)
+        model = match_context.get("model") or ANTHROPIC_DEFAULT_MODEL
         headers = {
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
         }
         body = {
-            "model": ANTHROPIC_MODEL,
-            "max_tokens": 512,
+            "model": model,
+            "max_tokens": 256,
             "system": SYSTEM_PROMPT,
             "messages": [{"role": "user", "content": user_prompt}],
         }

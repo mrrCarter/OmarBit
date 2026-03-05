@@ -4,11 +4,14 @@ import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from auth import AuthenticatedUser, get_current_user
 from db import get_conn
 from encryption import encrypt_api_key, get_key_id
 from models import AIProfileCreate, AIProfileListResponse, AIProfileResponse
+from providers.key_validator import validate_api_key
+from providers.models import get_default_model, is_valid_model
 
 router = APIRouter(prefix="/api/v1", tags=["ai-profiles"])
 
@@ -30,6 +33,25 @@ def _compute_request_hash(body: dict) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
+@router.get("/providers/models")
+async def list_provider_models() -> JSONResponse:
+    """Return available models per provider with cost info."""
+    from providers.models import MODELS
+
+    result = {}
+    for provider, models in MODELS.items():
+        result[provider] = [
+            {
+                "id": m.id,
+                "name": m.name,
+                "cost_per_1m_input": m.cost_per_1m_input,
+                "cost_per_1m_output": m.cost_per_1m_output,
+            }
+            for m in models
+        ]
+    return JSONResponse(content=result)
+
+
 @router.post("/ai-profiles", response_model=AIProfileResponse, status_code=201)
 async def create_ai_profile(
     body: AIProfileCreate,
@@ -40,6 +62,19 @@ async def create_ai_profile(
     idempotency_key = request.headers.get("idempotency-key")
     if not idempotency_key:
         raise _error_envelope(request, "MISSING_IDEMPOTENCY_KEY", "Idempotency-Key header is required", 400)
+
+    # Resolve model — use default if not specified
+    model = body.model or get_default_model(body.provider)
+    if model and not is_valid_model(body.provider, model):
+        raise _error_envelope(
+            request, "INVALID_MODEL",
+            f"Model '{model}' is not available for provider '{body.provider}'", 400,
+        )
+
+    # Validate API key with a test call
+    key_valid, key_error = await validate_api_key(body.provider, model, body.api_key)
+    if not key_valid:
+        raise _error_envelope(request, "INVALID_API_KEY", key_error, 400)
 
     request_hash = _compute_request_hash(body.model_dump(exclude={"api_key"}))
 
@@ -86,10 +121,15 @@ async def create_ai_profile(
 
             # Insert AI profile
             await cur.execute(
-                "INSERT INTO ai_profiles (user_id, display_name, provider, api_key_ciphertext, api_key_key_id, style) "
-                "VALUES (%s, %s, %s, %s, %s, %s) "
-                "RETURNING id, display_name, provider, style, active, created_at",
-                (user_db_id, body.display_name, body.provider, ciphertext, key_id, body.style),
+                "INSERT INTO ai_profiles "
+                "(user_id, display_name, provider, model, api_key_ciphertext, api_key_key_id, "
+                "style, custom_instructions) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+                "RETURNING id, display_name, provider, model, style, active, created_at",
+                (
+                    user_db_id, body.display_name, body.provider, model,
+                    ciphertext, key_id, body.style, body.custom_instructions,
+                ),
             )
             profile = await cur.fetchone()
             if profile is None:
@@ -99,6 +139,7 @@ async def create_ai_profile(
                 "id": str(profile["id"]),
                 "display_name": profile["display_name"],
                 "provider": profile["provider"],
+                "model": profile["model"],
                 "style": profile["style"],
                 "active": profile["active"],
                 "created_at": profile["created_at"].isoformat(),
@@ -139,7 +180,7 @@ async def list_my_profiles(
                 return {"profiles": []}
 
             await cur.execute(
-                "SELECT id, display_name, provider, style, active, created_at "
+                "SELECT id, display_name, provider, model, style, active, created_at "
                 "FROM ai_profiles WHERE user_id = %s ORDER BY created_at DESC LIMIT 50",
                 (user_row["id"],),
             )
@@ -150,6 +191,7 @@ async def list_my_profiles(
                         "id": str(r["id"]),
                         "display_name": r["display_name"],
                         "provider": r["provider"],
+                        "model": r.get("model", ""),
                         "style": r["style"],
                         "active": r["active"],
                         "created_at": r["created_at"],

@@ -115,7 +115,8 @@ async def _load_ai_profile(ai_id: str) -> dict | None:
     async with get_conn() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "SELECT id, display_name, provider, api_key_ciphertext, style "
+                "SELECT id, display_name, provider, model, api_key_ciphertext, style, "
+                "custom_instructions, instruction_file_content "
                 "FROM ai_profiles WHERE id = %s AND active = true",
                 (str(ai_id),),
             )
@@ -124,6 +125,8 @@ async def _load_ai_profile(ai_id: str) -> dict | None:
 
 async def _transition_match(match_id: str, target_status: str, **kwargs) -> bool:
     """Transition match status in DB. Returns True on success."""
+    from psycopg import sql
+
     async with get_conn() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
@@ -134,29 +137,29 @@ async def _transition_match(match_id: str, target_status: str, **kwargs) -> bool
             if not row or not can_transition(row["status"], target_status):
                 return False
 
-            set_parts = ["status = %s"]
+            set_parts: list[sql.Composable] = [sql.SQL("status = %s")]
             params: list = [target_status]
 
             if target_status in ("completed", "forfeit", "aborted"):
-                set_parts.append("completed_at = now()")
+                set_parts.append(sql.SQL("completed_at = now()"))
 
             if "winner_ai_id" in kwargs:
-                set_parts.append("winner_ai_id = %s")
+                set_parts.append(sql.SQL("winner_ai_id = %s"))
                 params.append(kwargs["winner_ai_id"])
 
             if "forfeit_reason" in kwargs:
-                set_parts.append("forfeit_reason = %s")
+                set_parts.append(sql.SQL("forfeit_reason = %s"))
                 params.append(kwargs["forfeit_reason"])
 
             if "pgn" in kwargs:
-                set_parts.append("pgn = %s")
+                set_parts.append(sql.SQL("pgn = %s"))
                 params.append(kwargs["pgn"])
 
             params.append(match_id)
-            await cur.execute(
-                f"UPDATE matches SET {', '.join(set_parts)} WHERE id = %s",
-                tuple(params),
+            query = sql.SQL("UPDATE matches SET {} WHERE id = %s").format(
+                sql.SQL(", ").join(set_parts)
             )
+            await cur.execute(query, tuple(params))
             await conn.commit()
             return True
 
@@ -191,13 +194,12 @@ async def _update_elo(
     """Update ELO ratings transactionally. Per spec: single BEGIN...COMMIT block."""
     async with get_conn() as conn:
         async with conn.cursor() as cur:
-            # Get current ratings (INSERT default if missing)
-            for ai_id in (white_ai_id, black_ai_id):
-                await cur.execute(
-                    "INSERT INTO elo_ratings (ai_id) VALUES (%s) "
-                    "ON CONFLICT (ai_id) DO NOTHING",
-                    (ai_id,),
-                )
+            # Ensure both players have ELO rows (batch upsert)
+            await cur.executemany(
+                "INSERT INTO elo_ratings (ai_id) VALUES (%s) "
+                "ON CONFLICT (ai_id) DO NOTHING",
+                [(white_ai_id,), (black_ai_id,)],
+            )
 
             await cur.execute(
                 "SELECT ai_id, rating FROM elo_ratings "
@@ -215,21 +217,27 @@ async def _update_elo(
             )
 
             # Update ratings and win/loss/draw counters
+            from psycopg import sql
+
             if result == "white_win":
-                w_col, b_col = "wins", "losses"
+                w_col, b_col = sql.Identifier("wins"), sql.Identifier("losses")
             elif result == "black_win":
-                w_col, b_col = "losses", "wins"
+                w_col, b_col = sql.Identifier("losses"), sql.Identifier("wins")
             else:
-                w_col, b_col = "draws", "draws"
+                w_col, b_col = sql.Identifier("draws"), sql.Identifier("draws")
 
             await cur.execute(
-                f"UPDATE elo_ratings SET rating = %s, {w_col} = {w_col} + 1, "
-                "updated_at = now() WHERE ai_id = %s",
+                sql.SQL(
+                    "UPDATE elo_ratings SET rating = %s, {} = {} + 1, "
+                    "updated_at = now() WHERE ai_id = %s"
+                ).format(w_col, w_col),
                 (new_white, white_ai_id),
             )
             await cur.execute(
-                f"UPDATE elo_ratings SET rating = %s, {b_col} = {b_col} + 1, "
-                "updated_at = now() WHERE ai_id = %s",
+                sql.SQL(
+                    "UPDATE elo_ratings SET rating = %s, {} = {} + 1, "
+                    "updated_at = now() WHERE ai_id = %s"
+                ).format(b_col, b_col),
                 (new_black, black_ai_id),
             )
             await conn.commit()
@@ -363,6 +371,9 @@ async def play_match(match_id: str) -> None:
                 "is_white": is_white_turn,
                 "white_time": clock.white_time,
                 "black_time": clock.black_time,
+                "model": active_profile.get("model") or "",
+                "custom_instructions": active_profile.get("custom_instructions") or "",
+                "instruction_file_content": active_profile.get("instruction_file_content") or "",
             }
 
             # Request move from provider via orchestrator
