@@ -30,17 +30,26 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-function evalToBar(cp: number | null): number {
+function evalToPercent(cp: number | null): number {
   if (cp === null) return 50;
-  const clamped = Math.max(-500, Math.min(500, cp));
-  return 50 + (clamped / 500) * 50;
+  const clamped = Math.max(-1000, Math.min(1000, cp));
+  return 50 + (clamped / 1000) * 50;
+}
+
+function evalLabel(cp: number | null): string {
+  if (cp === null) return "";
+  const val = Math.abs(cp) / 100;
+  if (val >= 100) return "M";
+  return val.toFixed(1);
 }
 
 export default function MatchPage() {
   const params = useParams();
   const matchId = params.id as string;
 
-  const [fen, setFen] = useState("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+  const [fen, setFen] = useState(
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+  );
   const [moves, setMoves] = useState<MoveEvent[]>([]);
   const [matchEnd, setMatchEnd] = useState<MatchEnd | null>(null);
   const [connected, setConnected] = useState(false);
@@ -52,10 +61,20 @@ export default function MatchPage() {
   const [whiteTime, setWhiteTime] = useState(300);
   const [blackTime, setBlackTime] = useState(300);
   const [lastEval, setLastEval] = useState<number | null>(null);
+  const [viewPly, setViewPly] = useState<number | null>(null);
 
   const moveListRef = useRef<HTMLDivElement>(null);
 
-  // Load match info
+  // Which ply is being displayed
+  const displayPly = viewPly ?? (moves.length > 0 ? moves[moves.length - 1].ply : 0);
+  const displayFen =
+    viewPly !== null
+      ? moves.find((m) => m.ply === viewPly)?.fen ?? fen
+      : fen;
+
+  // Determine whose turn it is
+  const isWhiteTurn = displayFen.split(" ")[1] === "w";
+
   useEffect(() => {
     async function loadMatch() {
       try {
@@ -75,7 +94,6 @@ export default function MatchPage() {
     loadMatch();
   }, [matchId]);
 
-  // SSE connection
   useEffect(() => {
     let eventSource: EventSource | null = null;
     let retryTimeout: ReturnType<typeof setTimeout>;
@@ -94,6 +112,7 @@ export default function MatchPage() {
           return [...prev, data];
         });
         setFen(data.fen);
+        setViewPly(null); // snap to latest
         if (data.eval_cp !== null) setLastEval(data.eval_cp);
         if (data.white_time !== undefined) setWhiteTime(data.white_time);
         if (data.black_time !== undefined) setBlackTime(data.black_time);
@@ -146,139 +165,249 @@ export default function MatchPage() {
     };
   }, [matchId]);
 
-  // Auto-scroll move list
   useEffect(() => {
-    if (moveListRef.current) {
+    if (moveListRef.current && viewPly === null) {
       moveListRef.current.scrollTop = moveListRef.current.scrollHeight;
     }
-  }, [moves]);
+  }, [moves, viewPly]);
 
   const isLive = matchInfo.status === "in_progress" && !matchEnd;
+  const whitePercent = evalToPercent(lastEval);
 
   return (
-    <div className="flex flex-col gap-6 pt-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold">
-            {matchInfo.white_name ?? "White"} vs{" "}
-            {matchInfo.black_name ?? "Black"}
-          </h1>
-          <p className="text-sm text-zinc-500">5+0 blitz</p>
-        </div>
+    <div className="flex flex-col items-center gap-4 py-4">
+      {/* Status bar */}
+      <div className="flex w-full max-w-[800px] items-center justify-between px-1">
         <div className="flex items-center gap-2">
           {isLive && (
-            <span className="flex items-center gap-1.5 rounded-full bg-green-900/40 px-3 py-1 text-xs font-medium text-green-400">
+            <span className="flex items-center gap-1.5 rounded bg-green-900/50 px-2 py-0.5 text-xs font-semibold text-green-400">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
               LIVE
             </span>
           )}
           {matchEnd && (
-            <span className="rounded-full bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-400">
-              {matchEnd.status.toUpperCase()}
+            <span className="rounded bg-zinc-800 px-2 py-0.5 text-xs font-semibold text-zinc-300">
+              {matchEnd.status === "completed" && matchEnd.result === "draw"
+                ? "DRAW"
+                : matchEnd.status === "completed"
+                  ? "CHECKMATE"
+                  : matchEnd.status === "forfeit"
+                    ? "FORFEIT"
+                    : matchEnd.status.toUpperCase()}
             </span>
           )}
-          <span
-            className={`h-2 w-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`}
-            title={connected ? "Connected" : "Disconnected"}
-          />
+          <span className="text-xs text-zinc-500">5+0 Blitz</span>
         </div>
+        <span
+          className={`h-2 w-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`}
+          title={connected ? "Connected" : "Disconnected"}
+        />
       </div>
 
-      {/* Main content */}
-      <div className="flex flex-col gap-6 lg:flex-row">
-        {/* Board + clocks */}
-        <div className="flex flex-col gap-3">
-          {/* Black clock */}
-          <div className="flex items-center justify-between rounded-md border border-zinc-800 px-4 py-2">
-            <span className="text-sm text-zinc-400">
-              {matchInfo.black_name ?? "Black"}
-            </span>
-            <span className="font-mono text-lg text-white">
+      {/* Main layout: eval bar | board+clocks | side panel */}
+      <div className="flex gap-4">
+        {/* Vertical eval bar — Lichess style */}
+        <div className="flex flex-col items-center gap-1">
+          <span className="text-[10px] font-bold text-zinc-400">
+            {lastEval !== null && lastEval < 0 ? evalLabel(lastEval) : ""}
+          </span>
+          <div
+            className="relative overflow-hidden rounded-sm"
+            style={{ width: 26, height: 360 }}
+          >
+            {/* White portion (bottom) */}
+            <div
+              className="absolute bottom-0 left-0 right-0 bg-zinc-100 transition-all duration-500 ease-out"
+              style={{ height: `${whitePercent}%` }}
+            />
+            {/* Black portion (top) */}
+            <div
+              className="absolute left-0 right-0 top-0 bg-zinc-700 transition-all duration-500 ease-out"
+              style={{ height: `${100 - whitePercent}%` }}
+            />
+          </div>
+          <span className="text-[10px] font-bold text-zinc-400">
+            {lastEval !== null && lastEval >= 0 ? evalLabel(lastEval) : ""}
+          </span>
+        </div>
+
+        {/* Board + player bars */}
+        <div className="flex flex-col">
+          {/* Black player bar */}
+          <div
+            className={`flex items-center justify-between rounded-t px-3 py-1.5 ${
+              !isWhiteTurn && isLive
+                ? "bg-zinc-700"
+                : "bg-zinc-800/60"
+            }`}
+            style={{ width: 360 }}
+          >
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-3 rounded-sm bg-zinc-900" />
+              <span className="text-sm font-medium text-zinc-200">
+                {matchInfo.black_name ?? "Black"}
+              </span>
+            </div>
+            <span
+              className={`rounded px-2 py-0.5 font-mono text-sm font-bold ${
+                !isWhiteTurn && isLive
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-400"
+              }`}
+            >
               {formatTime(blackTime)}
             </span>
           </div>
 
-          {/* Chess board */}
-          <div className="w-[360px]">
-            <ChessBoard position={fen} size={360} />
-          </div>
+          {/* Board */}
+          <ChessBoard position={displayFen} size={360} />
 
-          {/* White clock */}
-          <div className="flex items-center justify-between rounded-md border border-zinc-800 px-4 py-2">
-            <span className="text-sm text-zinc-400">
-              {matchInfo.white_name ?? "White"}
-            </span>
-            <span className="font-mono text-lg text-white">
+          {/* White player bar */}
+          <div
+            className={`flex items-center justify-between rounded-b px-3 py-1.5 ${
+              isWhiteTurn && isLive
+                ? "bg-zinc-700"
+                : "bg-zinc-800/60"
+            }`}
+            style={{ width: 360 }}
+          >
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-3 rounded-sm bg-zinc-200" />
+              <span className="text-sm font-medium text-zinc-200">
+                {matchInfo.white_name ?? "White"}
+              </span>
+            </div>
+            <span
+              className={`rounded px-2 py-0.5 font-mono text-sm font-bold ${
+                isWhiteTurn && isLive
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-400"
+              }`}
+            >
               {formatTime(whiteTime)}
             </span>
           </div>
         </div>
 
         {/* Side panel */}
-        <div className="flex flex-1 flex-col gap-4">
-          {/* Eval bar */}
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between text-xs text-zinc-500">
-              <span>Black</span>
-              <span>
-                {lastEval !== null
-                  ? `${lastEval > 0 ? "+" : ""}${(lastEval / 100).toFixed(1)}`
-                  : "—"}
-              </span>
-              <span>White</span>
-            </div>
-            <div className="h-3 overflow-hidden rounded-full bg-zinc-800">
-              <div
-                className="h-full bg-white transition-all duration-300"
-                style={{ width: `${evalToBar(lastEval)}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Move list */}
+        <div className="flex w-[260px] flex-col">
+          {/* Move list — Lichess 2-column style */}
           <div
             ref={moveListRef}
-            className="max-h-[320px] overflow-y-auto rounded-md border border-zinc-800 p-3"
+            className="flex-1 overflow-y-auto rounded-t border border-zinc-800 bg-zinc-900/40"
+            style={{ maxHeight: 320 }}
           >
             {moves.length === 0 ? (
-              <p className="text-sm text-zinc-500">
+              <p className="p-4 text-center text-sm text-zinc-500">
                 {isLive ? "Waiting for first move..." : "No moves yet"}
               </p>
             ) : (
-              <div className="grid grid-cols-[2rem_1fr_1fr] gap-y-0.5 text-sm">
-                {Array.from(
-                  { length: Math.ceil(moves.length / 2) },
-                  (_, i) => {
-                    const w = moves[i * 2];
-                    const b = moves[i * 2 + 1];
-                    return (
-                      <div key={i} className="contents">
-                        <span className="text-zinc-600">{i + 1}.</span>
-                        <span className="text-white">{w?.san ?? ""}</span>
-                        <span className="text-zinc-300">{b?.san ?? ""}</span>
-                      </div>
-                    );
-                  }
-                )}
-              </div>
+              <table className="w-full text-sm">
+                <tbody>
+                  {Array.from(
+                    { length: Math.ceil(moves.length / 2) },
+                    (_, i) => {
+                      const w = moves[i * 2];
+                      const b = moves[i * 2 + 1];
+                      return (
+                        <tr
+                          key={i}
+                          className="border-b border-zinc-800/50"
+                        >
+                          <td className="w-8 px-2 py-1 text-right text-zinc-600">
+                            {i + 1}
+                          </td>
+                          <td
+                            className={`cursor-pointer px-2 py-1 font-medium transition-colors hover:bg-zinc-800 ${
+                              w && displayPly === w.ply
+                                ? "bg-zinc-700 text-white"
+                                : "text-zinc-200"
+                            }`}
+                            onClick={() =>
+                              w && setViewPly(w.ply === viewPly ? null : w.ply)
+                            }
+                          >
+                            {w?.san ?? ""}
+                          </td>
+                          <td
+                            className={`cursor-pointer px-2 py-1 font-medium transition-colors hover:bg-zinc-800 ${
+                              b && displayPly === b.ply
+                                ? "bg-zinc-700 text-white"
+                                : "text-zinc-300"
+                            }`}
+                            onClick={() =>
+                              b && setViewPly(b.ply === viewPly ? null : b.ply)
+                            }
+                          >
+                            {b?.san ?? ""}
+                          </td>
+                        </tr>
+                      );
+                    }
+                  )}
+                </tbody>
+              </table>
             )}
           </div>
 
-          {/* Chat / Think summaries */}
-          <div className="flex flex-col gap-2 rounded-md border border-zinc-800 p-3">
-            <h3 className="text-xs font-medium uppercase text-zinc-500">
-              AI Chat
+          {/* Navigation buttons */}
+          <div className="flex border border-t-0 border-zinc-800 bg-zinc-900/60 rounded-b">
+            <button
+              className="flex-1 px-2 py-1.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white disabled:opacity-30"
+              disabled={moves.length === 0}
+              onClick={() => setViewPly(moves[0]?.ply ?? null)}
+              title="First move"
+            >
+              ⟨⟨
+            </button>
+            <button
+              className="flex-1 px-2 py-1.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white disabled:opacity-30"
+              disabled={displayPly <= (moves[0]?.ply ?? 0)}
+              onClick={() => {
+                const idx = moves.findIndex((m) => m.ply === displayPly);
+                if (idx > 0) setViewPly(moves[idx - 1].ply);
+              }}
+              title="Previous move"
+            >
+              ⟨
+            </button>
+            <button
+              className="flex-1 px-2 py-1.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white disabled:opacity-30"
+              disabled={
+                displayPly >= (moves[moves.length - 1]?.ply ?? 0)
+              }
+              onClick={() => {
+                const idx = moves.findIndex((m) => m.ply === displayPly);
+                if (idx < moves.length - 1) setViewPly(moves[idx + 1].ply);
+              }}
+              title="Next move"
+            >
+              ⟩
+            </button>
+            <button
+              className="flex-1 px-2 py-1.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white disabled:opacity-30"
+              disabled={viewPly === null}
+              onClick={() => setViewPly(null)}
+              title="Latest move"
+            >
+              ⟩⟩
+            </button>
+          </div>
+
+          {/* AI Chat panel */}
+          <div className="mt-3 rounded border border-zinc-800 bg-zinc-900/40 p-2">
+            <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+              AI Commentary
             </h3>
-            <div className="max-h-[150px] overflow-y-auto">
+            <div className="max-h-[100px] overflow-y-auto">
               {moves
                 .filter((m) => m.chat_line || m.think_summary)
-                .slice(-10)
+                .slice(-6)
                 .map((m) => (
-                  <div key={m.ply} className="text-xs">
+                  <div key={m.ply} className="py-0.5 text-xs">
                     {m.chat_line && (
                       <p className="text-zinc-300">
-                        <span className="text-zinc-500">ply {m.ply}:</span>{" "}
+                        <span className="text-zinc-600">{m.ply}.</span>{" "}
                         {m.chat_line}
                       </p>
                     )}
@@ -289,27 +418,29 @@ export default function MatchPage() {
                     )}
                   </div>
                 ))}
-              {moves.filter((m) => m.chat_line || m.think_summary).length ===
-                0 && (
-                <p className="text-xs text-zinc-600">No chat messages yet</p>
+              {moves.filter((m) => m.chat_line || m.think_summary)
+                .length === 0 && (
+                <p className="text-xs text-zinc-600">No commentary yet</p>
               )}
             </div>
           </div>
 
           {/* Match result */}
           {matchEnd && (
-            <div className="rounded-md border border-zinc-700 bg-zinc-900 p-4">
-              <h3 className="font-medium text-white">
+            <div className="mt-3 rounded border border-zinc-700 bg-zinc-800 p-3 text-center">
+              <p className="text-sm font-semibold text-white">
                 {matchEnd.status === "completed" && matchEnd.result === "draw"
-                  ? "Draw"
+                  ? "½ - ½"
                   : matchEnd.status === "completed"
-                    ? "Checkmate"
-                    : matchEnd.status === "forfeit"
-                      ? "Forfeit"
-                      : "Aborted"}
-              </h3>
+                    ? matchEnd.winner_ai_id
+                      ? "1 - 0"
+                      : "0 - 1"
+                    : "Game Over"}
+              </p>
               {matchEnd.reason && (
-                <p className="mt-1 text-sm text-zinc-400">{matchEnd.reason}</p>
+                <p className="mt-0.5 text-xs text-zinc-400">
+                  {matchEnd.reason}
+                </p>
               )}
             </div>
           )}
