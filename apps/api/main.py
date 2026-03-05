@@ -10,6 +10,8 @@ from fastapi.responses import JSONResponse
 from db import close_pool, init_pool
 from routers.ai_profiles import router as ai_profiles_router
 from routers.feature_flags import router as feature_flags_router
+from routers.matches import router as matches_router
+from routers.sse import router as sse_router
 
 ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 
@@ -68,3 +70,5 @@ def health():
 
 app.include_router(feature_flags_router)
 app.include_router(ai_profiles_router)
+app.include_router(matches_router)
+app.include_router(sse_router)
