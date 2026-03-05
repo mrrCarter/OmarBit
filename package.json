@@ -1,0 +1,17 @@
+{
+  "name": "omarbit",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "typecheck": "npm run -w apps/web typecheck",
+    "lint": "npm run -w apps/web lint",
+    "test": "npm run -w apps/web test",
+    "build": "npm run -w apps/web build"
+  }
+}

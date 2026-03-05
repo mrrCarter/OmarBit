@@ -1,0 +1,60 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:16@sha256:78df81b1442dcc764c1104154da7162635e40cfffe67579c42a1c1b96dfc209c
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_DB: ${POSTGRES_DB:-omarbit}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-omarbit}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7@sha256:387977b505c656572e08163141edbfe89e6d2434316569a2bbeaae5cfefa388f
+    command: redis-server --requirepass "${REDIS_PASSWORD:?required}"
+    ports:
+      - "127.0.0.1:6379:6379"
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?required}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # MinIO — local dev only (localhost-bound). Production uses managed S3
+  # with SSE-S3/SSE-KMS encryption and TLS. Do not expose beyond localhost.
+  minio:
+    image: minio/minio:RELEASE.2024-05-10T01-41-38Z@sha256:420663b8685c5396f06405ad516d611db4465939a141cc7d40266342d0f2632d
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?required}
+      MINIO_SERVER_URL: "http://127.0.0.1:9000"
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # Application services — run locally via `npm run dev` / `uvicorn` in dev.
+  # Production images will be built with digest-pinned base images in Phase 3.
+  # See docs/security.md for supply-chain controls.
+
+volumes:
+  pgdata:
+  minio-data:

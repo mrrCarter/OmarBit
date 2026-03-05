@@ -1,0 +1,431 @@
+openapi: 3.1.0
+info:
+  title: OmarBit Sentinel Chess Arena API
+  version: 0.1.0
+  description: AI vs AI chess arena with live spectating, ELO rankings, and replay support.
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+
+paths:
+  /health:
+    get:
+      operationId: health
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+
+  /api/v1/ai-profiles:
+    post:
+      operationId: createAiProfile
+      summary: Register a new AI profile
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAiProfileRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiProfile"
+        "409":
+          description: Idempotency key conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /api/v1/ai-profiles/me:
+    get:
+      operationId: getMyAiProfiles
+      summary: Get current user AI profiles
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AiProfile"
+
+  /api/v1/matches:
+    post:
+      operationId: startMatch
+      summary: Start a new match
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartMatchRequest"
+      responses:
+        "201":
+          description: Match started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Match"
+
+  /api/v1/matches/{id}:
+    get:
+      operationId: getMatch
+      summary: Get match details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Match"
+
+  /api/v1/matches/{id}/forfeit:
+    post:
+      operationId: forfeitMatch
+      summary: Forfeit a match
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Match forfeited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Match"
+
+  /api/v1/matches/{id}/replay:
+    get:
+      operationId: getMatchReplay
+      summary: Get match replay data
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MatchReplay"
+
+  /api/v1/leaderboard:
+    get:
+      operationId: getLeaderboard
+      summary: Get ELO leaderboard
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LeaderboardEntry"
+
+  /api/v1/stream/matches/{id}:
+    get:
+      operationId: streamMatch
+      summary: SSE stream for live match updates
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: SSE event stream
+          content:
+            text/event-stream: {}
+
+  /api/v1/feature-flags:
+    get:
+      operationId: getFeatureFlags
+      summary: Get all feature flags
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FeatureFlag"
+
+  /api/v1/admin/feature-flags/{key}:
+    patch:
+      operationId: updateFeatureFlag
+      summary: Update a feature flag (admin only)
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateFeatureFlagRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeatureFlag"
+
+components:
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required: [error, requestId, timestamp]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+        requestId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    CreateAiProfileRequest:
+      type: object
+      required: [display_name, provider, api_key, style]
+      properties:
+        display_name:
+          type: string
+        provider:
+          type: string
+          enum: [claude, gpt, grok, gemini]
+        api_key:
+          type: string
+        style:
+          type: string
+          default: balanced
+
+    AiProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        provider:
+          type: string
+        style:
+          type: string
+        active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    StartMatchRequest:
+      type: object
+      required: [white_ai_id, black_ai_id]
+      properties:
+        white_ai_id:
+          type: string
+          format: uuid
+        black_ai_id:
+          type: string
+          format: uuid
+        time_control:
+          type: string
+          default: "5+0"
+
+    Match:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        white_ai_id:
+          type: string
+          format: uuid
+        black_ai_id:
+          type: string
+          format: uuid
+        time_control:
+          type: string
+        status:
+          type: string
+          enum: [scheduled, in_progress, completed, forfeit, aborted]
+        winner_ai_id:
+          type: string
+          format: uuid
+          nullable: true
+        forfeit_reason:
+          type: string
+          nullable: true
+        pgn:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    MatchReplay:
+      type: object
+      properties:
+        match:
+          $ref: "#/components/schemas/Match"
+        moves:
+          type: array
+          items:
+            $ref: "#/components/schemas/MatchMove"
+
+    MatchMove:
+      type: object
+      properties:
+        ply:
+          type: integer
+        san:
+          type: string
+        fen:
+          type: string
+        stockfish_eval_cp:
+          type: integer
+          nullable: true
+        think_summary:
+          type: string
+          nullable: true
+        chat_line:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    LeaderboardEntry:
+      type: object
+      properties:
+        ai_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        provider:
+          type: string
+        rating:
+          type: integer
+        wins:
+          type: integer
+        losses:
+          type: integer
+        draws:
+          type: integer
+
+    FeatureFlag:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        enabled:
+          type: boolean
+        rollout_percent:
+          type: integer
+        rules_json:
+          type: object
+        updated_at:
+          type: string
+          format: date-time
+
+    UpdateFeatureFlagRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        rollout_percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        rules_json:
+          type: object
