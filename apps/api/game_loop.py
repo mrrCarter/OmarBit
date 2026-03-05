@@ -115,7 +115,8 @@ async def _load_ai_profile(ai_id: str) -> dict | None:
     async with get_conn() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "SELECT id, display_name, provider, api_key_ciphertext, style "
+                "SELECT id, display_name, provider, model, api_key_ciphertext, style, "
+                "custom_instructions, instruction_file_content "
                 "FROM ai_profiles WHERE id = %s AND active = true",
                 (str(ai_id),),
             )
@@ -363,6 +364,9 @@ async def play_match(match_id: str) -> None:
                 "is_white": is_white_turn,
                 "white_time": clock.white_time,
                 "black_time": clock.black_time,
+                "model": active_profile.get("model") or "",
+                "custom_instructions": active_profile.get("custom_instructions") or "",
+                "instruction_file_content": active_profile.get("instruction_file_content") or "",
             }
 
             # Request move from provider via orchestrator

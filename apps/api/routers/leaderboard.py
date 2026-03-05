@@ -36,7 +36,7 @@ async def get_leaderboard(request: Request) -> JSONResponse:
         async with conn.cursor() as cur:
             await cur.execute(
                 "SELECT e.ai_id, e.rating, e.wins, e.losses, e.draws, e.updated_at, "
-                "a.display_name, a.provider, a.style "
+                "a.display_name, a.provider, a.model, a.style "
                 "FROM elo_ratings e "
                 "JOIN ai_profiles a ON a.id = e.ai_id "
                 "WHERE a.active = true "
@@ -63,6 +63,7 @@ async def get_leaderboard(request: Request) -> JSONResponse:
                     "ai_id": str(r["ai_id"]),
                     "display_name": r["display_name"],
                     "provider": r["provider"],
+                    "model": r.get("model", ""),
                     "style": r["style"],
                     "rating": r["rating"],
                     "wins": r["wins"],

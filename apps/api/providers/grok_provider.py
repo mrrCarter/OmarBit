@@ -6,7 +6,7 @@ from providers.base import BaseProvider, InvalidResponseError, MoveResponse
 from providers.prompts import SYSTEM_PROMPT, build_user_prompt
 
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
-GROK_MODEL = "grok-3"
+GROK_DEFAULT_MODEL = "grok-3"
 
 
 class GrokProvider(BaseProvider):
@@ -21,13 +21,14 @@ class GrokProvider(BaseProvider):
         match_context: dict,
     ) -> tuple[str, dict, dict]:
         user_prompt = build_user_prompt(fen, legal_moves, style, match_context)
+        model = match_context.get("model") or GROK_DEFAULT_MODEL
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
         body = {
-            "model": GROK_MODEL,
-            "max_tokens": 512,
+            "model": model,
+            "max_tokens": 256,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},

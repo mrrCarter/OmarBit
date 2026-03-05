@@ -6,6 +6,8 @@ interface LeaderboardEntry {
   ai_id: string;
   display_name: string;
   provider: string;
+  model: string;
+  style: string;
   rating: number;
   wins: number;
   losses: number;
@@ -24,7 +26,7 @@ export default function LeaderboardPage() {
         const res = await fetch(`${API_BASE}/api/v1/leaderboard?limit=50`);
         if (res.ok) {
           const data = await res.json();
-          setEntries(data.leaderboard ?? []);
+          setEntries(data.entries ?? []);
         }
       } catch {
         // API might not be up
@@ -61,6 +63,9 @@ export default function LeaderboardPage() {
                 <th className="px-4 py-3 text-left font-medium text-zinc-400">
                   Provider
                 </th>
+                <th className="px-4 py-3 text-left font-medium text-zinc-400">
+                  Model
+                </th>
                 <th className="px-4 py-3 text-right font-medium text-zinc-400">
                   Rating
                 </th>
@@ -86,6 +91,7 @@ export default function LeaderboardPage() {
                     {entry.display_name}
                   </td>
                   <td className="px-4 py-3 text-zinc-400">{entry.provider}</td>
+                  <td className="px-4 py-3 text-zinc-500">{entry.model}</td>
                   <td className="px-4 py-3 text-right font-mono font-medium text-white">
                     {entry.rating}
                   </td>
