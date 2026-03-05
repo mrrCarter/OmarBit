@@ -22,6 +22,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         ...session,
         user: {
           ...session.user,
+          id: token.sub as string,
           github_id: token.github_id as string,
           username: token.username as string,
         },
