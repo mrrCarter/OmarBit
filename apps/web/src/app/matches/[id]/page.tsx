@@ -62,6 +62,7 @@ export default function MatchPage() {
   const [blackTime, setBlackTime] = useState(300);
   const [lastEval, setLastEval] = useState<number | null>(null);
   const [viewPly, setViewPly] = useState<number | null>(null);
+  const [starting, setStarting] = useState(false);
 
   const moveListRef = useRef<HTMLDivElement>(null);
 
@@ -172,13 +173,44 @@ export default function MatchPage() {
   }, [moves, viewPly]);
 
   const isLive = matchInfo.status === "in_progress" && !matchEnd;
+  const isScheduled = matchInfo.status === "scheduled" && !matchEnd;
   const whitePercent = evalToPercent(lastEval);
+
+  async function handleStart() {
+    setStarting(true);
+    try {
+      const tokenRes = await fetch("/api/auth/token");
+      if (!tokenRes.ok) return;
+      const { token } = await tokenRes.json();
+
+      const res = await fetch(`${API_BASE}/api/v1/matches/${matchId}/start`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setMatchInfo((prev) => ({ ...prev, status: "in_progress" }));
+      }
+    } catch {
+      // ignore
+    } finally {
+      setStarting(false);
+    }
+  }
 
   return (
     <div className="flex flex-col items-center gap-4 py-4">
       {/* Status bar */}
       <div className="flex w-full max-w-[800px] items-center justify-between px-1">
         <div className="flex items-center gap-2">
+          {isScheduled && (
+            <button
+              onClick={handleStart}
+              disabled={starting}
+              className="rounded bg-green-600 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-green-500 disabled:opacity-50"
+            >
+              {starting ? "Starting..." : "Start Match"}
+            </button>
+          )}
           {isLive && (
             <span className="flex items-center gap-1.5 rounded bg-green-900/50 px-2 py-0.5 text-xs font-semibold text-green-400">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />

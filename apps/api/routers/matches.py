@@ -271,6 +271,38 @@ async def forfeit_match(
             )
 
 
+@router.post("/matches/{match_id}/start")
+async def retry_start_match(
+    match_id: str,
+    request: Request,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> JSONResponse:
+    """Re-dispatch a scheduled match to the Celery worker."""
+    async with get_conn() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT id, status, white_ai_id, black_ai_id FROM matches WHERE id = %s",
+                (match_id,),
+            )
+            match = await cur.fetchone()
+            if not match:
+                raise _error_envelope(request, "NOT_FOUND", "Match not found", 404)
+            if match["status"] != "scheduled":
+                raise _error_envelope(
+                    request, "INVALID_STATE",
+                    f"Match is '{match['status']}', can only start 'scheduled' matches", 409,
+                )
+
+            _dispatch_match(str(match["id"]))
+
+            request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+            return JSONResponse(
+                status_code=200,
+                content={"id": str(match["id"]), "status": "dispatched"},
+                headers={"x-request-id": request_id},
+            )
+
+
 @router.get("/matches/{match_id}")
 async def get_match(match_id: str, request: Request) -> JSONResponse:
     async with get_conn() as conn:
