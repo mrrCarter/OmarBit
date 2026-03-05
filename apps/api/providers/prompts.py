@@ -71,12 +71,19 @@ def build_user_prompt(
     safe_moves = validate_san_list(legal_moves)
     style_instruction = STYLE_INSTRUCTIONS.get(style, STYLE_INSTRUCTIONS["balanced"])
     ply = match_context.get("ply", 0)
-    color = "White" if ply % 2 == 0 else "Black"
+    is_white = match_context.get("is_white", ply % 2 == 0)
+    color = "White" if is_white else "Black"
+    your_name = match_context.get("white_name", "White") if is_white else match_context.get("black_name", "Black")
+    opponent_name = match_context.get("black_name", "Black") if is_white else match_context.get("white_name", "White")
+    white_time = match_context.get("white_time", 300)
+    black_time = match_context.get("black_time", 300)
 
     return (
         f"Position (FEN): {safe_fen}\n"
         f"Legal moves: {', '.join(safe_moves)}\n"
-        f"You are playing as {color}.\n"
+        f"You are: {your_name} (playing as {color})\n"
+        f"Opponent: {opponent_name}\n"
+        f"Time remaining — You: {white_time:.0f}s, Opponent: {black_time:.0f}s\n"
         f"Style: {style_instruction}\n"
         f"Move number: {ply // 2 + 1}\n"
         "Respond with the JSON object only."

@@ -308,9 +308,13 @@ async def get_match(match_id: str, request: Request) -> JSONResponse:
     async with get_conn() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "SELECT id, white_ai_id, black_ai_id, time_control, status, "
-                "winner_ai_id, forfeit_reason, pgn, created_at, completed_at "
-                "FROM matches WHERE id = %s",
+                "SELECT m.id, m.white_ai_id, m.black_ai_id, m.time_control, m.status, "
+                "m.winner_ai_id, m.forfeit_reason, m.pgn, m.created_at, m.completed_at, "
+                "w.display_name AS white_name, b.display_name AS black_name "
+                "FROM matches m "
+                "LEFT JOIN ai_profiles w ON m.white_ai_id = w.id "
+                "LEFT JOIN ai_profiles b ON m.black_ai_id = b.id "
+                "WHERE m.id = %s",
                 (match_id,),
             )
             match = await cur.fetchone()
@@ -324,6 +328,8 @@ async def get_match(match_id: str, request: Request) -> JSONResponse:
                     "id": str(match["id"]),
                     "white_ai_id": str(match["white_ai_id"]),
                     "black_ai_id": str(match["black_ai_id"]),
+                    "white_name": match["white_name"],
+                    "black_name": match["black_name"],
                     "time_control": match["time_control"],
                     "status": match["status"],
                     "winner_ai_id": str(match["winner_ai_id"]) if match["winner_ai_id"] else None,

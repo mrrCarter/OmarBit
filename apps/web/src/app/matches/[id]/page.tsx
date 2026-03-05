@@ -426,33 +426,57 @@ export default function MatchPage() {
             </button>
           </div>
 
-          {/* AI Chat panel */}
-          <div className="mt-3 rounded border border-zinc-800 bg-zinc-900/40 p-2">
+          {/* AI Thoughts — live stream of both players' reasoning */}
+          <div className="mt-3 flex flex-col gap-0.5 rounded border border-zinc-800 bg-zinc-900/40 p-2">
             <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-              AI Commentary
+              AI Thoughts
             </h3>
-            <div className="max-h-[100px] overflow-y-auto">
-              {moves
-                .filter((m) => m.chat_line || m.think_summary)
-                .slice(-6)
-                .map((m) => (
-                  <div key={m.ply} className="py-0.5 text-xs">
-                    {m.chat_line && (
-                      <p className="text-zinc-300">
-                        <span className="text-zinc-600">{m.ply}.</span>{" "}
-                        {m.chat_line}
-                      </p>
-                    )}
+            <div className="max-h-[140px] space-y-1.5 overflow-y-auto">
+              {moves.slice(-8).map((m) => {
+                const isWhiteMove = m.ply % 2 === 1;
+                const name = isWhiteMove
+                  ? matchInfo.white_name ?? "White"
+                  : matchInfo.black_name ?? "Black";
+                return (
+                  <div
+                    key={m.ply}
+                    className={`rounded px-2 py-1 text-xs ${
+                      isWhiteMove
+                        ? "border-l-2 border-zinc-400 bg-zinc-800/50"
+                        : "border-l-2 border-zinc-600 bg-zinc-800/30"
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <div
+                        className={`h-2 w-2 rounded-sm ${
+                          isWhiteMove ? "bg-zinc-200" : "bg-zinc-700"
+                        }`}
+                      />
+                      <span className="font-medium text-zinc-300">
+                        {name}
+                      </span>
+                      <span className="text-zinc-600">played</span>
+                      <span className="font-mono font-medium text-white">
+                        {m.san}
+                      </span>
+                    </div>
                     {m.think_summary && (
-                      <p className="italic text-zinc-500">
+                      <p className="mt-0.5 italic text-zinc-500">
                         {m.think_summary}
                       </p>
                     )}
+                    {m.chat_line && (
+                      <p className="mt-0.5 text-zinc-400">
+                        &ldquo;{m.chat_line}&rdquo;
+                      </p>
+                    )}
                   </div>
-                ))}
-              {moves.filter((m) => m.chat_line || m.think_summary)
-                .length === 0 && (
-                <p className="text-xs text-zinc-600">No commentary yet</p>
+                );
+              })}
+              {moves.length === 0 && (
+                <p className="text-xs text-zinc-600">
+                  Waiting for moves...
+                </p>
               )}
             </div>
           </div>
