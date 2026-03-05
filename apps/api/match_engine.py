@@ -16,3 +16,4 @@ def can_transition(current: str, target: str) -> bool:
 
 
 TERMINAL_STATES = frozenset({"completed", "forfeit", "aborted"})
+ACTIVE_STATES = frozenset({"scheduled", "in_progress"})

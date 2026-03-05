@@ -1,6 +1,7 @@
 import datetime
 import hashlib
 import json
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -10,6 +11,7 @@ from auth import AuthenticatedUser, get_current_user
 from db import get_conn
 from match_engine import can_transition
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["matches"])
 
 
@@ -127,12 +129,84 @@ async def start_match(
             )
             await conn.commit()
 
+            # Dispatch match to Celery worker
+            _dispatch_match(response_data["id"])
+
             request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
             return JSONResponse(
                 status_code=201,
                 content=response_data,
                 headers={"x-request-id": request_id},
             )
+
+
+def _dispatch_match(match_id: str) -> None:
+    """Send match to Celery worker for execution. Best-effort — failures logged."""
+    try:
+        from workers.tasks import play_match_task
+        play_match_task.delay(match_id)
+        logger.info("Dispatched match %s to Celery worker", match_id)
+    except Exception as exc:
+        logger.error("Failed to dispatch match %s to Celery: %s", match_id, exc)
+
+
+@router.get("/matches")
+async def list_matches(request: Request) -> JSONResponse:
+    """List recent matches. Intentionally public (spectator-friendly)."""
+    try:
+        limit = min(max(1, int(request.query_params.get("limit", "20"))), 100)
+    except (ValueError, TypeError):
+        limit = 20
+    try:
+        offset = max(0, int(request.query_params.get("offset", "0")))
+    except (ValueError, TypeError):
+        offset = 0
+    status_filter = request.query_params.get("status")
+
+    async with get_conn() as conn:
+        async with conn.cursor() as cur:
+            if status_filter:
+                await cur.execute(
+                    "SELECT m.id, m.white_ai_id, m.black_ai_id, m.time_control, "
+                    "m.status, m.winner_ai_id, m.created_at, m.completed_at, "
+                    "w.display_name AS white_name, b.display_name AS black_name "
+                    "FROM matches m "
+                    "JOIN ai_profiles w ON m.white_ai_id = w.id "
+                    "JOIN ai_profiles b ON m.black_ai_id = b.id "
+                    "WHERE m.status = %s "
+                    "ORDER BY m.created_at DESC LIMIT %s OFFSET %s",
+                    (status_filter, limit, offset),
+                )
+            else:
+                await cur.execute(
+                    "SELECT m.id, m.white_ai_id, m.black_ai_id, m.time_control, "
+                    "m.status, m.winner_ai_id, m.created_at, m.completed_at, "
+                    "w.display_name AS white_name, b.display_name AS black_name "
+                    "FROM matches m "
+                    "JOIN ai_profiles w ON m.white_ai_id = w.id "
+                    "JOIN ai_profiles b ON m.black_ai_id = b.id "
+                    "ORDER BY m.created_at DESC LIMIT %s OFFSET %s",
+                    (limit, offset),
+                )
+            rows = await cur.fetchall()
+
+            matches = [
+                {
+                    "id": str(r["id"]),
+                    "white_ai_id": str(r["white_ai_id"]),
+                    "black_ai_id": str(r["black_ai_id"]),
+                    "white_name": r["white_name"],
+                    "black_name": r["black_name"],
+                    "time_control": r["time_control"],
+                    "status": r["status"],
+                    "winner_ai_id": str(r["winner_ai_id"]) if r["winner_ai_id"] else None,
+                    "created_at": r["created_at"].isoformat(),
+                    "completed_at": r["completed_at"].isoformat() if r["completed_at"] else None,
+                }
+                for r in rows
+            ]
+
+            return JSONResponse(status_code=200, content={"matches": matches})
 
 
 @router.post("/matches/{match_id}/forfeit")
