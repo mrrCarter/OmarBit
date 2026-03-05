@@ -19,11 +19,28 @@ export async function GET() {
     );
   }
 
-  const user = session.user as { github_id?: string; username?: string; name?: string };
+  const user = session.user as {
+    id?: string;
+    github_id?: string;
+    username?: string;
+    name?: string;
+  };
+
+  const githubId = user.github_id ?? "";
+  const username = user.username ?? user.name ?? "";
+  const userId = user.id ?? "";
+
+  if (!githubId || !username) {
+    return NextResponse.json(
+      { error: { code: "UNAUTHORIZED", message: "Session missing required user claims" } },
+      { status: 401 }
+    );
+  }
 
   const token = await new SignJWT({
-    github_id: user.github_id ?? "",
-    username: user.username ?? user.name ?? "",
+    github_id: githubId,
+    username: username,
+    user_id: userId,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setExpirationTime("8h")

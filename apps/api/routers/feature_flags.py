@@ -2,12 +2,16 @@ import datetime
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from psycopg import sql
 
 from auth import AuthenticatedUser, get_current_user
 from db import get_conn
 from models import FeatureFlagResponse, FeatureFlagUpdate
 
 router = APIRouter(prefix="/api/v1", tags=["feature-flags"])
+
+# Allowlisted columns that can be updated via the PATCH endpoint.
+_ALLOWED_COLUMNS = frozenset({"enabled", "rollout_percent", "rules_json"})
 
 
 def _error_envelope(request: Request, code: str, message: str, status: int) -> HTTPException:
@@ -56,37 +60,42 @@ async def update_feature_flag(
             await cur.execute("SELECT id FROM feature_flags WHERE key = %s", (key,))
             row = await cur.fetchone()
             if not row:
-                raise _error_envelope(request, "NOT_FOUND", f"Feature flag '{key}' not found", 404)
+                raise _error_envelope(request, "NOT_FOUND", "Feature flag not found", 404)
 
-            updates = []
+            # Build SET clause using psycopg.sql for safe composition.
+            # Only allowlisted column names are used (never user input).
+            set_parts: list[sql.Composable] = []
             params: list = []
             if body.enabled is not None:
-                updates.append("enabled = %s")
+                set_parts.append(sql.SQL("{} = %s").format(sql.Identifier("enabled")))
                 params.append(body.enabled)
             if body.rollout_percent is not None:
-                updates.append("rollout_percent = %s")
+                set_parts.append(sql.SQL("{} = %s").format(sql.Identifier("rollout_percent")))
                 params.append(body.rollout_percent)
             if body.rules_json is not None:
-                updates.append("rules_json = %s")
+                set_parts.append(sql.SQL("{} = %s").format(sql.Identifier("rules_json")))
                 params.append(body.rules_json)
 
-            if not updates:
+            if not set_parts:
                 raise _error_envelope(request, "BAD_REQUEST", "No fields to update", 400)
 
-            updates.append("updated_at = now()")
+            set_parts.append(sql.SQL("{} = now()").format(sql.Identifier("updated_at")))
             params.append(key)
 
-            set_clause = ", ".join(updates)
-            query = (
-                f"UPDATE feature_flags SET {set_clause} WHERE key = %s "
+            query = sql.SQL(
+                "UPDATE {table} SET {sets} WHERE {col} = %s "
                 "RETURNING id, key, enabled, rollout_percent, rules_json, updated_at"
+            ).format(
+                table=sql.Identifier("feature_flags"),
+                sets=sql.SQL(", ").join(set_parts),
+                col=sql.Identifier("key"),
             )
             await cur.execute(query, params)
             r = await cur.fetchone()
             await conn.commit()
 
             if r is None:
-                raise _error_envelope(request, "NOT_FOUND", f"Feature flag '{key}' not found", 404)
+                raise _error_envelope(request, "NOT_FOUND", "Feature flag not found", 404)
 
             return {
                 "id": str(r["id"]),

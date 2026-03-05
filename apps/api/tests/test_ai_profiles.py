@@ -1,7 +1,7 @@
 import os
 
 os.environ["SKIP_DB"] = "true"
-os.environ["NEXTAUTH_SECRET"] = "test-secret-for-jwt"
+os.environ.setdefault("NEXTAUTH_SECRET", os.urandom(32).hex())
 
 from fastapi.testclient import TestClient
 from jose import jwt
@@ -11,13 +11,13 @@ from main import app
 # raise_server_exceptions=False: DB pool not available in test env.
 client = TestClient(app, raise_server_exceptions=False)
 
-SECRET = "test-secret-for-jwt"
+_TEST_SECRET = os.environ["NEXTAUTH_SECRET"]
 
 
 def _make_token() -> str:
     return jwt.encode(
         {"github_id": "12345", "username": "testuser", "user_id": "00000000-0000-0000-0000-000000000000"},
-        SECRET,
+        _TEST_SECRET,
         algorithm="HS256",
     )
 

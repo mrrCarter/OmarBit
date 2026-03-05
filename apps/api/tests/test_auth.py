@@ -1,7 +1,7 @@
 import os
 
 os.environ["SKIP_DB"] = "true"
-os.environ["NEXTAUTH_SECRET"] = "test-secret-for-jwt"
+os.environ.setdefault("NEXTAUTH_SECRET", os.urandom(32).hex())
 
 from fastapi.testclient import TestClient
 from jose import jwt
@@ -11,11 +11,11 @@ from main import app
 # raise_server_exceptions=False: some endpoints touch DB after auth passes.
 client = TestClient(app, raise_server_exceptions=False)
 
-SECRET = "test-secret-for-jwt"
+_TEST_SECRET = os.environ["NEXTAUTH_SECRET"]
 
 
 def _make_token(payload: dict) -> str:
-    return jwt.encode(payload, SECRET, algorithm="HS256")
+    return jwt.encode(payload, _TEST_SECRET, algorithm="HS256")
 
 
 def test_missing_auth_header_returns_401():
