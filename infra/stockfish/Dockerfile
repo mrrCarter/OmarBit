@@ -4,7 +4,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends stockfish=15.1+ds-1 && \
     rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir fastapi==0.115.0 uvicorn==0.30.6 python-chess==1.999
+COPY requirements-locked.txt .
+RUN pip install --no-cache-dir --require-hashes -r requirements-locked.txt
 
 RUN useradd --create-home --shell /bin/bash appuser
 COPY server.py /app/server.py

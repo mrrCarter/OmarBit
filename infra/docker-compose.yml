@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:16
+    image: postgres:16@sha256:78df81b1442dcc764c1104154da7162635e40cfffe67579c42a1c1b96dfc209c
     environment:
       POSTGRES_USER: ${POSTGRES_USER?err: set POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?err: set POSTGRES_PASSWORD}
@@ -18,7 +18,7 @@ services:
       start_period: 10s
 
   redis:
-    image: redis:7
+    image: redis:7@sha256:387977b505c656572e08163141edbfe89e6d2434316569a2bbeaae5cfefa388f
     command: redis-server --requirepass "${REDIS_PASSWORD?err: set REDIS_PASSWORD}"
     ports:
       - "127.0.0.1:6380:6379"

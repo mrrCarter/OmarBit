@@ -23,11 +23,6 @@ export async function apiFetch(
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...fetchOptions,
-    headers,
-    signal: fetchOptions.signal ?? AbortSignal.timeout(timeoutMs),
-  });
-
-  return response;
+  const signal = fetchOptions.signal ?? AbortSignal.timeout(timeoutMs);
+  return fetch(`${API_BASE}${path}`, { ...fetchOptions, headers, signal });
 }

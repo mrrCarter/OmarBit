@@ -37,8 +37,8 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --ignore-scripts=false
-          pip install -r apps/api/requirements-locked.txt
-          pip install -r apps/api/requirements-dev-locked.txt
+          pip install --require-hashes -r apps/api/requirements-locked.txt
+          pip install --require-hashes -r apps/api/requirements-dev-locked.txt
           cd apps/api && python -m pytest -q
           cd ../..
           npm run -w apps/web test
@@ -61,8 +61,8 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --ignore-scripts=false
-          pip install -r apps/api/requirements-locked.txt
-          pip install -r apps/api/requirements-dev-locked.txt
+          pip install --require-hashes -r apps/api/requirements-locked.txt
+          pip install --require-hashes -r apps/api/requirements-dev-locked.txt
           npm run -w apps/web lint
           ruff check apps/api
 
