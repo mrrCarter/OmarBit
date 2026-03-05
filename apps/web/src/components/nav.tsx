@@ -36,6 +36,12 @@ export function Nav() {
           <span className="text-sm text-zinc-500">...</span>
         ) : session ? (
           <div className="flex items-center gap-3">
+            <Link
+              href="/my-ais"
+              className="text-sm text-zinc-400 transition-colors hover:text-white"
+            >
+              My AIs
+            </Link>
             <span className="text-sm text-zinc-300">
               {session.user?.name}
             </span>

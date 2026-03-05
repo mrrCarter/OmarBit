@@ -46,6 +46,14 @@ class AIProfileResponse(BaseModel):
     created_at: datetime.datetime
 
 
+class AIProfileUpdate(BaseModel):
+    display_name: str | None = Field(None, min_length=1, max_length=100)
+    style: StyleType | None = None
+    model: str | None = Field(None, max_length=100)
+    custom_instructions: str | None = Field(None, max_length=15000)
+    active: bool | None = None
+
+
 class AIProfileListResponse(BaseModel):
     profiles: list[AIProfileResponse]
 

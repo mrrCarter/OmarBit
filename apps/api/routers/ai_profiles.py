@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from auth import AuthenticatedUser, get_current_user
 from db import get_conn
 from encryption import encrypt_api_key, get_key_id
-from models import AIProfileCreate, AIProfileListResponse, AIProfileResponse
+from models import AIProfileCreate, AIProfileListResponse, AIProfileResponse, AIProfileUpdate
 from providers.key_validator import validate_api_key
 from providers.models import get_default_model, is_valid_model
 
@@ -222,3 +222,211 @@ async def list_my_profiles(
                     for r in rows
                 ]
             }
+
+
+@router.patch("/ai-profiles/{profile_id}", response_model=AIProfileResponse)
+async def update_ai_profile(
+    profile_id: str,
+    body: AIProfileUpdate,
+    request: Request,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> dict:
+    """Update an AI profile. Only the owner can update."""
+    async with get_conn() as conn:
+        async with conn.cursor() as cur:
+            # Resolve user
+            await cur.execute("SELECT id FROM users WHERE github_id = %s", (user.github_id,))
+            user_row = await cur.fetchone()
+            if not user_row:
+                raise _error_envelope(request, "UNAUTHORIZED", "User not found", 401)
+
+            # Load profile and verify ownership
+            await cur.execute(
+                "SELECT id, user_id, provider, model FROM ai_profiles WHERE id = %s",
+                (profile_id,),
+            )
+            profile = await cur.fetchone()
+            if not profile:
+                raise _error_envelope(request, "NOT_FOUND", "AI profile not found", 404)
+            if profile["user_id"] != user_row["id"]:
+                raise _error_envelope(request, "FORBIDDEN", "You do not own this profile", 403)
+
+            # Validate model if changed
+            if body.model is not None and body.model != profile["model"]:
+                if not is_valid_model(profile["provider"], body.model):
+                    raise _error_envelope(
+                        request, "INVALID_MODEL",
+                        f"Model '{body.model}' is not available for provider '{profile['provider']}'",
+                        400,
+                    )
+
+            # Sanitize instructions if changed
+            sanitized_instructions = body.custom_instructions
+            if sanitized_instructions is not None:
+                from instruction_sanitizer import sanitize_instructions
+
+                sanitized_instructions, sanitize_warnings = sanitize_instructions(sanitized_instructions)
+                for w in sanitize_warnings:
+                    if w.startswith("REJECTED:"):
+                        raise _error_envelope(
+                            request, "UNSAFE_INSTRUCTIONS",
+                            f"Custom instructions rejected: {w.removeprefix('REJECTED: ')}",
+                            400,
+                        )
+
+                from safety_scanner import scan_instructions
+
+                is_safe, safety_reason = await scan_instructions(sanitized_instructions)
+                if not is_safe:
+                    raise _error_envelope(
+                        request, "UNSAFE_INSTRUCTIONS",
+                        f"Custom instructions flagged: {safety_reason}", 400,
+                    )
+
+            # Build SET clause dynamically
+            from psycopg import sql
+
+            set_parts: list[sql.Composable] = []
+            params: list = []
+
+            if body.display_name is not None:
+                set_parts.append(sql.SQL("display_name = %s"))
+                params.append(body.display_name)
+            if body.style is not None:
+                set_parts.append(sql.SQL("style = %s"))
+                params.append(body.style)
+            if body.model is not None:
+                set_parts.append(sql.SQL("model = %s"))
+                params.append(body.model)
+            if body.active is not None:
+                set_parts.append(sql.SQL("active = %s"))
+                params.append(body.active)
+            if sanitized_instructions is not None:
+                set_parts.append(sql.SQL("custom_instructions = %s"))
+                params.append(sanitized_instructions)
+
+            if not set_parts:
+                raise _error_envelope(request, "BAD_REQUEST", "No fields to update", 400)
+
+            params.append(profile_id)
+            query = sql.SQL(
+                "UPDATE ai_profiles SET {} WHERE id = %s "
+                "RETURNING id, display_name, provider, model, style, active, created_at"
+            ).format(sql.SQL(", ").join(set_parts))
+
+            await cur.execute(query, tuple(params))
+            updated = await cur.fetchone()
+            await conn.commit()
+
+            if updated is None:
+                raise _error_envelope(request, "INTERNAL_ERROR", "Failed to update profile", 500)
+
+            return {
+                "id": str(updated["id"]),
+                "display_name": updated["display_name"],
+                "provider": updated["provider"],
+                "model": updated["model"] or "",
+                "style": updated["style"],
+                "active": updated["active"],
+                "created_at": updated["created_at"],
+            }
+
+
+@router.delete("/ai-profiles/{profile_id}", status_code=200)
+async def delete_ai_profile(
+    profile_id: str,
+    request: Request,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> JSONResponse:
+    """Soft-delete an AI profile (set active=false). Cannot delete if in active match."""
+    async with get_conn() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT id FROM users WHERE github_id = %s", (user.github_id,))
+            user_row = await cur.fetchone()
+            if not user_row:
+                raise _error_envelope(request, "UNAUTHORIZED", "User not found", 401)
+
+            await cur.execute(
+                "SELECT id, user_id FROM ai_profiles WHERE id = %s",
+                (profile_id,),
+            )
+            profile = await cur.fetchone()
+            if not profile:
+                raise _error_envelope(request, "NOT_FOUND", "AI profile not found", 404)
+            if profile["user_id"] != user_row["id"]:
+                raise _error_envelope(request, "FORBIDDEN", "You do not own this profile", 403)
+
+            # Check for active matches
+            await cur.execute(
+                "SELECT id FROM matches "
+                "WHERE (white_ai_id = %s OR black_ai_id = %s) "
+                "AND status IN ('scheduled', 'in_progress') "
+                "LIMIT 1",
+                (profile_id, profile_id),
+            )
+            active_match = await cur.fetchone()
+            if active_match:
+                raise _error_envelope(
+                    request, "CONFLICT",
+                    "Cannot delete AI with active matches. Forfeit or wait for completion.",
+                    409,
+                )
+
+            await cur.execute(
+                "UPDATE ai_profiles SET active = false WHERE id = %s", (profile_id,),
+            )
+            await conn.commit()
+
+            return JSONResponse(
+                status_code=200,
+                content={"id": str(profile_id), "deleted": True},
+            )
+
+
+@router.get("/ai-profiles/{profile_id}/matches")
+async def get_ai_match_history(
+    profile_id: str,
+    request: Request,
+) -> JSONResponse:
+    """Return match history for an AI profile. Public endpoint."""
+    try:
+        limit = min(max(1, int(request.query_params.get("limit", "20"))), 100)
+    except (ValueError, TypeError):
+        limit = 20
+    try:
+        offset = max(0, int(request.query_params.get("offset", "0")))
+    except (ValueError, TypeError):
+        offset = 0
+
+    async with get_conn() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT m.id, m.white_ai_id, m.black_ai_id, m.time_control, "
+                "m.status, m.winner_ai_id, m.created_at, m.completed_at, "
+                "w.display_name AS white_name, b.display_name AS black_name "
+                "FROM matches m "
+                "JOIN ai_profiles w ON m.white_ai_id = w.id "
+                "JOIN ai_profiles b ON m.black_ai_id = b.id "
+                "WHERE m.white_ai_id = %s OR m.black_ai_id = %s "
+                "ORDER BY m.created_at DESC LIMIT %s OFFSET %s",
+                (profile_id, profile_id, limit, offset),
+            )
+            rows = await cur.fetchall()
+
+            matches = [
+                {
+                    "id": str(r["id"]),
+                    "white_ai_id": str(r["white_ai_id"]),
+                    "black_ai_id": str(r["black_ai_id"]),
+                    "white_name": r["white_name"],
+                    "black_name": r["black_name"],
+                    "time_control": r["time_control"],
+                    "status": r["status"],
+                    "winner_ai_id": str(r["winner_ai_id"]) if r["winner_ai_id"] else None,
+                    "created_at": r["created_at"].isoformat(),
+                    "completed_at": r["completed_at"].isoformat() if r["completed_at"] else None,
+                }
+                for r in rows
+            ]
+
+            return JSONResponse(status_code=200, content={"matches": matches})
