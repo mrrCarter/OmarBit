@@ -3,12 +3,19 @@ import os
 import re
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env.local")
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from db import close_pool, init_pool
+from db import DatabaseUnavailableError, close_pool, init_pool
 from routers.ai_profiles import router as ai_profiles_router
 from routers.feature_flags import router as feature_flags_router
 from routers.leaderboard import router as leaderboard_router
@@ -33,6 +40,37 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="OmarBit API", version="0.1.0", lifespan=lifespan)
 
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
+
+class RequestIDMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        client_id = ""
+        for key, value in scope.get("headers", []):
+            if key == b"x-request-id":
+                client_id = value.decode("latin-1")
+                break
+
+        request_id = client_id if _UUID_RE.match(client_id) else str(uuid.uuid4())
+        scope.setdefault("state", {})["request_id"] = request_id
+
+        async def send_with_request_id(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers["x-request-id"] = request_id
+            await send(message)
+
+        await self.app(scope, receive, send_with_request_id)
+
+
+app.add_middleware(RequestIDMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -42,17 +80,20 @@ app.add_middleware(
 )
 
 
-_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
-
-
-@app.middleware("http")
-async def request_id_middleware(request: Request, call_next):
-    client_id = request.headers.get("x-request-id", "")
-    request_id = client_id if _UUID_RE.match(client_id) else str(uuid.uuid4())
-    request.state.request_id = request_id
-    response = await call_next(request)
-    response.headers["x-request-id"] = request_id
-    return response
+@app.exception_handler(DatabaseUnavailableError)
+async def db_unavailable_handler(request: Request, exc: DatabaseUnavailableError):
+    request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+    return JSONResponse(
+        status_code=503,
+        content={
+            "error": {
+                "code": "DATABASE_UNAVAILABLE",
+                "message": str(exc),
+            },
+            "requestId": request_id,
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        },
+    )
 
 
 @app.exception_handler(Exception)

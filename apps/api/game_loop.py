@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 _INITIAL_TIME_SEC = 300.0
 _INCREMENT_SEC = 0.0
 
+# Max plies before declaring a draw (prevents infinite games)
+MAX_PLIES = 300
+
 
 @dataclass
 class MatchClock:
@@ -320,7 +323,7 @@ async def play_match(match_id: str) -> None:
 
     ply = 0
     try:
-        while not board.is_game_over(claim_draw=True):
+        while not board.is_game_over(claim_draw=True) and ply < MAX_PLIES:
             # Determine active player
             is_white_turn = board.turn == chess.WHITE
             active_ai_id = white_ai_id if is_white_turn else black_ai_id
@@ -469,7 +472,7 @@ async def play_match(match_id: str) -> None:
                 pgn=pgn_str,
             )
         else:
-            # Draw (stalemate, insufficient material, 50-move, repetition)
+            # Draw (stalemate, insufficient material, 50-move, repetition, max plies)
             result = "draw"
             await _transition_match(
                 match_id, "completed",
@@ -501,3 +504,7 @@ async def play_match(match_id: str) -> None:
         # Zero API keys after use (spec anti-pattern guard)
         white_api_key = ""  # noqa: F841
         black_api_key = ""  # noqa: F841
+
+
+# Alias for backward compatibility with the asyncio background task approach
+run_match = play_match
