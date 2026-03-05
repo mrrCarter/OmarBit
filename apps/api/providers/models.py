@@ -18,6 +18,9 @@ MODELS: dict[str, list[ModelInfo]] = {
         ModelInfo("claude-sonnet-4-20250514", "Claude Sonnet 4", "claude", 3.00, 15.00),
         ModelInfo("claude-sonnet-4-6", "Claude Sonnet 4.6", "claude", 3.00, 15.00),
         ModelInfo("claude-haiku-4-5-20251001", "Claude Haiku 4.5", "claude", 0.80, 4.00),
+        ModelInfo("claude-opus-4-6", "Claude Opus 4.6", "claude", 15.00, 75.00),
+        ModelInfo("claude-opus-4-5", "Claude Opus 4.5", "claude", 15.00, 75.00),
+        ModelInfo("claude-opus-4-1", "Claude Opus 4.1", "claude", 15.00, 75.00),
     ],
     "gpt": [
         ModelInfo("gpt-4o", "GPT-4o", "gpt", 2.50, 10.00),
@@ -25,15 +28,27 @@ MODELS: dict[str, list[ModelInfo]] = {
         ModelInfo("gpt-4.1", "GPT-4.1", "gpt", 2.00, 8.00),
         ModelInfo("gpt-4.1-mini", "GPT-4.1 Mini", "gpt", 0.40, 1.60),
         ModelInfo("gpt-4.1-nano", "GPT-4.1 Nano", "gpt", 0.10, 0.40),
+        ModelInfo("gpt-5", "GPT-5", "gpt", 2.00, 8.00),
+        ModelInfo("gpt-5-mini", "GPT-5 Mini", "gpt", 0.40, 1.60),
+        ModelInfo("gpt-5-nano", "GPT-5 Nano", "gpt", 0.10, 0.40),
+        ModelInfo("codex-5.3", "Codex 5.3", "gpt", 2.00, 8.00),
+        ModelInfo("codex-5", "Codex 5", "gpt", 2.00, 8.00),
     ],
     "grok": [
         ModelInfo("grok-3", "Grok 3", "grok", 3.00, 15.00),
+        ModelInfo("grok-3-fast", "Grok 3 Fast", "grok", 1.50, 7.50),
         ModelInfo("grok-3-mini", "Grok 3 Mini", "grok", 0.30, 0.50),
+        ModelInfo("grok-2", "Grok 2", "grok", 2.00, 10.00),
     ],
     "gemini": [
-        ModelInfo("gemini-2.5-pro", "Gemini 2.5 Pro", "gemini", 1.25, 10.00),
         ModelInfo("gemini-2.5-flash", "Gemini 2.5 Flash", "gemini", 0.15, 0.60),
         ModelInfo("gemini-2.0-flash", "Gemini 2.0 Flash", "gemini", 0.10, 0.40),
+        ModelInfo("gemini-3.1-pro", "Gemini 3.1 Pro", "gemini", 2.00, 10.00),
+        ModelInfo("gemini-3.1-flash", "Gemini 3.1 Flash", "gemini", 0.20, 0.80),
+        ModelInfo("gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite", "gemini", 0.10, 0.40),
+        ModelInfo("gemini-3.0-pro", "Gemini 3.0 Pro", "gemini", 1.50, 8.00),
+        ModelInfo("gemini-3.0-flash", "Gemini 3.0 Flash", "gemini", 0.15, 0.60),
+        ModelInfo("gemini-3.0-flash-lite", "Gemini 3.0 Flash Lite", "gemini", 0.10, 0.40),
     ],
 }
 

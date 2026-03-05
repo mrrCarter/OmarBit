@@ -1,4 +1,5 @@
 import datetime
+import logging
 import os
 import re
 import uuid
@@ -23,6 +24,8 @@ from routers.matches import router as matches_router  # noqa: E402
 from routers.replay import router as replay_router  # noqa: E402
 from routers.sse import router as sse_router  # noqa: E402
 from routers.tournaments import router as tournaments_router  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 
@@ -67,7 +70,22 @@ class RequestIDMiddleware:
                 headers["x-request-id"] = request_id
             await send(message)
 
-        await self.app(scope, receive, send_with_request_id)
+        try:
+            await self.app(scope, receive, send_with_request_id)
+        except Exception:
+            logger.exception("Unhandled exception while processing request")
+            response = JSONResponse(
+                status_code=500,
+                content={
+                    "error": {
+                        "code": "INTERNAL_ERROR",
+                        "message": "Unexpected error",
+                    },
+                    "requestId": request_id,
+                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                },
+            )
+            await response(scope, receive, send_with_request_id)
 
 
 app.add_middleware(RequestIDMiddleware)

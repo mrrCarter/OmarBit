@@ -7,8 +7,11 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Skip real API calls in local dev (set SKIP_KEY_VALIDATION=true)
-_SKIP_VALIDATION = os.getenv("SKIP_KEY_VALIDATION", "").lower() == "true"
+# Skip real API calls in local dev (set SKIP_KEY_VALIDATION=true, or NODE_ENV=development).
+_SKIP_VALIDATION = (
+    os.getenv("SKIP_KEY_VALIDATION", "").lower() == "true"
+    or os.getenv("NODE_ENV", "").lower() == "development"
+)
 
 _TIMEOUT = httpx.Timeout(5.0, read=10.0)
 
