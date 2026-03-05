@@ -9,20 +9,20 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env.local")
 
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from starlette.datastructures import MutableHeaders
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from fastapi import FastAPI, Request  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+from starlette.datastructures import MutableHeaders  # noqa: E402
+from starlette.types import ASGIApp, Message, Receive, Scope, Send  # noqa: E402
 
-from db import DatabaseUnavailableError, close_pool, init_pool
-from routers.ai_profiles import router as ai_profiles_router
-from routers.feature_flags import router as feature_flags_router
-from routers.leaderboard import router as leaderboard_router
-from routers.matches import router as matches_router
-from routers.replay import router as replay_router
-from routers.sse import router as sse_router
-from routers.tournaments import router as tournaments_router
+from db import DatabaseUnavailableError, close_pool, init_pool  # noqa: E402
+from routers.ai_profiles import router as ai_profiles_router  # noqa: E402
+from routers.feature_flags import router as feature_flags_router  # noqa: E402
+from routers.leaderboard import router as leaderboard_router  # noqa: E402
+from routers.matches import router as matches_router  # noqa: E402
+from routers.replay import router as replay_router  # noqa: E402
+from routers.sse import router as sse_router  # noqa: E402
+from routers.tournaments import router as tournaments_router  # noqa: E402
 
 ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 
