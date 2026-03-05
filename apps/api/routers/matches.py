@@ -141,10 +141,18 @@ async def start_match(
 
 
 def _dispatch_match(match_id: str) -> None:
-    """Send match to Celery worker for execution. Best-effort — failures logged."""
+    """Send match to Celery worker for execution. Best-effort — failures logged.
+
+    Uses send_task() to avoid importing workers module (separate package in monorepo).
+    """
     try:
-        from workers.tasks import play_match_task
-        play_match_task.delay(match_id)
+        import os
+
+        from celery import Celery
+
+        redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+        celery_app = Celery(broker=redis_url)
+        celery_app.send_task("workers.play_match", args=[match_id])
         logger.info("Dispatched match %s to Celery worker", match_id)
     except Exception as exc:
         logger.error("Failed to dispatch match %s to Celery: %s", match_id, exc)
