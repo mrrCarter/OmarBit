@@ -1,259 +1,510 @@
-"""Async game loop — runs a match from scheduled to completion.
+"""Core game loop — plays a match from start to finish.
 
-Spawned as a background asyncio task when a match is created.
-Handles the full lifecycle: transition states, orchestrate moves,
-persist results, update ELO.
+This is the beating heart of OmarBit. It:
+1. Transitions match from scheduled -> in_progress
+2. Loops turns: provider -> stockfish validation -> moderation -> persist move
+3. Tracks clocks (5+0 blitz)
+4. Detects game-over (checkmate, stalemate, draw rules)
+5. Updates ELO transactionally on completion
+6. Publishes SSE events via Redis pub/sub
 """
 
 import asyncio
+import json
 import logging
+import time
+from dataclasses import dataclass, field
 
 import chess
+import chess.pgn
 
 from db import get_conn
 from elo import DEFAULT_RATING, calculate_new_ratings
 from encryption import decrypt_api_key
+from match_engine import can_transition
 from move_orchestrator import orchestrate_move
 from stockfish import evaluate_position
 
 logger = logging.getLogger(__name__)
 
+# 5+0 blitz: 300 seconds per side, 0 increment
+_INITIAL_TIME_SEC = 300.0
+_INCREMENT_SEC = 0.0
+
 # Max plies before declaring a draw (prevents infinite games)
 MAX_PLIES = 300
 
 
-async def run_match(match_id: str) -> None:
-    """Run a full match to completion."""
-    # Small delay to let the DB transaction commit
-    await asyncio.sleep(0.5)
+@dataclass
+class MatchClock:
+    """Tracks time remaining for each side."""
 
-    try:
-        await _run_match_inner(match_id)
-    except Exception:
-        logger.exception("Game loop crashed for match %s", match_id)
+    white_time: float = _INITIAL_TIME_SEC
+    black_time: float = _INITIAL_TIME_SEC
+    active_side: chess.Color = chess.WHITE
+    last_move_timestamp: float = field(default_factory=time.monotonic)
+
+    def start_turn(self) -> None:
+        self.last_move_timestamp = time.monotonic()
+
+    def end_turn(self) -> float:
+        """Record elapsed time for the active side. Returns time consumed."""
+        elapsed = time.monotonic() - self.last_move_timestamp
+        if self.active_side == chess.WHITE:
+            self.white_time -= elapsed
+            self.white_time += _INCREMENT_SEC
+        else:
+            self.black_time -= elapsed
+            self.black_time += _INCREMENT_SEC
+        self.active_side = not self.active_side
+        return elapsed
+
+    def is_flagged(self) -> bool:
+        """Check if the active side has run out of time."""
+        return self.active_remaining() <= 0
+
+    def active_remaining(self) -> float:
+        elapsed = time.monotonic() - self.last_move_timestamp
+        if self.active_side == chess.WHITE:
+            return max(0.0, self.white_time - elapsed)
+        return max(0.0, self.black_time - elapsed)
+
+
+def parse_time_control(tc: str) -> tuple[float, float]:
+    """Parse time control string like '5+0' into (initial_sec, increment_sec)."""
+    parts = tc.split("+")
+    if len(parts) == 2:
         try:
-            async with get_conn() as conn:
-                await conn.execute(
-                    "UPDATE matches SET status = 'aborted', "
-                    "forfeit_reason = 'Internal game loop error', "
-                    "completed_at = now() WHERE id = %s AND status IN ('scheduled', 'in_progress')",
-                    (match_id,),
-                )
-                await conn.commit()
-        except Exception:
-            logger.exception("Failed to abort match %s after crash", match_id)
+            return float(parts[0]) * 60, float(parts[1])
+        except ValueError:
+            pass
+    return _INITIAL_TIME_SEC, _INCREMENT_SEC
 
 
-async def _run_match_inner(match_id: str) -> None:
-    # Load match and AI profiles
+async def _publish_event(match_id: str, event_type: str, data: dict) -> None:
+    """Publish SSE event via Redis pub/sub."""
+    try:
+        import os
+
+        import redis.asyncio as aioredis
+
+        redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+        r = aioredis.from_url(redis_url, decode_responses=True)
+        channel = f"match:{match_id}"
+        payload = json.dumps({"event": event_type, "data": data})
+        await r.publish(channel, payload)
+        await r.aclose()
+    except Exception as exc:
+        logger.warning("Failed to publish SSE event: %s", exc)
+
+
+async def _load_match(match_id: str) -> dict | None:
+    """Load match record from DB."""
     async with get_conn() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "SELECT m.id, m.white_ai_id, m.black_ai_id, m.status, "
-                "w.provider AS w_provider, w.api_key_ciphertext AS w_key, w.style AS w_style, w.display_name AS w_name, "
-                "b.provider AS b_provider, b.api_key_ciphertext AS b_key, b.style AS b_style, b.display_name AS b_name "
-                "FROM matches m "
-                "JOIN ai_profiles w ON w.id = m.white_ai_id "
-                "JOIN ai_profiles b ON b.id = m.black_ai_id "
-                "WHERE m.id = %s",
+                "SELECT id, white_ai_id, black_ai_id, time_control, status "
+                "FROM matches WHERE id = %s",
+                (match_id,),
+            )
+            return await cur.fetchone()
+
+
+async def _load_ai_profile(ai_id: str) -> dict | None:
+    """Load AI profile with decrypted API key."""
+    async with get_conn() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT id, display_name, provider, api_key_ciphertext, style "
+                "FROM ai_profiles WHERE id = %s AND active = true",
+                (str(ai_id),),
+            )
+            return await cur.fetchone()
+
+
+async def _transition_match(match_id: str, target_status: str, **kwargs) -> bool:
+    """Transition match status in DB. Returns True on success."""
+    async with get_conn() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT status FROM matches WHERE id = %s FOR UPDATE",
                 (match_id,),
             )
             row = await cur.fetchone()
+            if not row or not can_transition(row["status"], target_status):
+                return False
 
-    if not row:
-        logger.error("Match %s not found", match_id)
-        return
+            set_parts = ["status = %s"]
+            params: list = [target_status]
 
-    if row["status"] != "scheduled":
-        logger.warning("Match %s not in scheduled state (is %s)", match_id, row["status"])
-        return
+            if target_status in ("completed", "forfeit", "aborted"):
+                set_parts.append("completed_at = now()")
 
-    # Decrypt API keys
-    white_key = decrypt_api_key(bytes(row["w_key"]))
-    black_key = decrypt_api_key(bytes(row["b_key"]))
+            if "winner_ai_id" in kwargs:
+                set_parts.append("winner_ai_id = %s")
+                params.append(kwargs["winner_ai_id"])
 
-    white = {
-        "ai_id": str(row["white_ai_id"]),
-        "provider": row["w_provider"],
-        "api_key": white_key,
-        "style": row["w_style"],
-        "name": row["w_name"],
-    }
-    black = {
-        "ai_id": str(row["black_ai_id"]),
-        "provider": row["b_provider"],
-        "api_key": black_key,
-        "style": row["b_style"],
-        "name": row["b_name"],
-    }
+            if "forfeit_reason" in kwargs:
+                set_parts.append("forfeit_reason = %s")
+                params.append(kwargs["forfeit_reason"])
 
-    # Transition to in_progress
+            if "pgn" in kwargs:
+                set_parts.append("pgn = %s")
+                params.append(kwargs["pgn"])
+
+            params.append(match_id)
+            await cur.execute(
+                f"UPDATE matches SET {', '.join(set_parts)} WHERE id = %s",
+                tuple(params),
+            )
+            await conn.commit()
+            return True
+
+
+async def _insert_move(
+    match_id: str,
+    ply: int,
+    san: str,
+    fen: str,
+    eval_cp: int | None,
+    think_summary: str,
+    chat_line: str,
+) -> None:
+    """Insert a move into match_moves."""
     async with get_conn() as conn:
-        await conn.execute(
-            "UPDATE matches SET status = 'in_progress' WHERE id = %s AND status = 'scheduled'",
-            (match_id,),
-        )
-        await conn.commit()
-
-    board = chess.Board()
-    ply = 0
-    strike_counts = {"white": 0, "black": 0}
-
-    while not board.is_game_over() and ply < MAX_PLIES:
-        side = white if board.turn == chess.WHITE else black
-        side_name = "white" if board.turn == chess.WHITE else "black"
-
-        legal_moves = [board.san(m) for m in board.legal_moves]
-        fen = board.fen()
-
-        result = await orchestrate_move(
-            provider_name=side["provider"],
-            api_key=side["api_key"],
-            fen=fen,
-            legal_moves=legal_moves,
-            style=side["style"],
-            match_context={"ply": ply, "side": side_name},
-            strike_count=strike_counts[side_name],
-        )
-
-        if result.forfeit:
-            # The moving side forfeits — opponent wins
-            winner_id = black["ai_id"] if side_name == "white" else white["ai_id"]
-            async with get_conn() as conn:
-                await conn.execute(
-                    "UPDATE matches SET status = 'forfeit', winner_ai_id = %s, "
-                    "forfeit_reason = %s, completed_at = now() WHERE id = %s",
-                    (winner_id, result.forfeit_reason, match_id),
-                )
-                await conn.commit()
-            await _update_elo(match_id, white["ai_id"], black["ai_id"],
-                              "black_win" if side_name == "white" else "white_win")
-            logger.info("Match %s: %s forfeited — %s", match_id, side["name"], result.forfeit_reason)
-            return
-
-        # Apply move to board
-        move = board.parse_san(result.san)
-        board.push(move)
-        new_fen = board.fen()
-
-        # Get Stockfish eval (non-blocking, best-effort)
-        eval_cp = await evaluate_position(new_fen)
-
-        # Persist the move
-        async with get_conn() as conn:
-            await conn.execute(
-                "INSERT INTO match_moves (match_id, ply, san, fen, stockfish_eval_cp, think_summary, chat_line) "
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO match_moves "
+                "(match_id, ply, san, fen, stockfish_eval_cp, think_summary, chat_line) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                (match_id, ply, result.san, new_fen, eval_cp, result.think_summary, result.chat_line),
+                (match_id, ply, san, fen, eval_cp, think_summary, chat_line),
             )
             await conn.commit()
 
-        logger.info("Match %s ply %d: %s played %s", match_id, ply, side["name"], result.san)
-        ply += 1
 
-        # Small delay between moves so SSE clients can keep up
-        await asyncio.sleep(0.3)
-
-    # Game over — determine result
-    if board.is_checkmate():
-        # The side whose turn it is has been checkmated
-        if board.turn == chess.WHITE:
-            match_result = "black_win"
-            winner_id = black["ai_id"]
-        else:
-            match_result = "white_win"
-            winner_id = white["ai_id"]
-    else:
-        # Draw (stalemate, 50-move, insufficient material, repetition, or max plies)
-        match_result = "draw"
-        winner_id = None
-
-    # Build PGN
-    pgn_str = _build_pgn(board, white["name"], black["name"], match_result)
-
+async def _update_elo(
+    match_id: str,
+    white_ai_id: str,
+    black_ai_id: str,
+    result: str,
+) -> None:
+    """Update ELO ratings transactionally. Per spec: single BEGIN...COMMIT block."""
     async with get_conn() as conn:
-        await conn.execute(
-            "UPDATE matches SET status = 'completed', winner_ai_id = %s, "
-            "pgn = %s, completed_at = now() WHERE id = %s",
-            (winner_id, pgn_str, match_id),
-        )
-        await conn.commit()
-
-    await _update_elo(match_id, white["ai_id"], black["ai_id"], match_result)
-    logger.info("Match %s completed: %s", match_id, match_result)
-
-
-async def _update_elo(match_id: str, white_ai_id: str, black_ai_id: str, result: str) -> None:
-    """Update ELO ratings for both AIs."""
-    try:
-        async with get_conn() as conn:
-            async with conn.cursor() as cur:
-                # Get or create ratings
-                for ai_id in (white_ai_id, black_ai_id):
-                    await cur.execute(
-                        "INSERT INTO elo_ratings (ai_id, rating, wins, losses, draws) "
-                        "VALUES (%s, %s, 0, 0, 0) ON CONFLICT (ai_id) DO NOTHING",
-                        (ai_id, DEFAULT_RATING),
-                    )
-
+        async with conn.cursor() as cur:
+            # Get current ratings (INSERT default if missing)
+            for ai_id in (white_ai_id, black_ai_id):
                 await cur.execute(
-                    "SELECT ai_id, rating FROM elo_ratings WHERE ai_id = ANY(%s)",
-                    ([white_ai_id, black_ai_id],),
-                )
-                rows = await cur.fetchall()
-                ratings = {str(r["ai_id"]): r["rating"] for r in rows}
-
-                w_rating = ratings.get(white_ai_id, DEFAULT_RATING)
-                b_rating = ratings.get(black_ai_id, DEFAULT_RATING)
-                new_w, new_b = calculate_new_ratings(w_rating, b_rating, result)
-
-                # Update white
-                w_wins = 1 if result == "white_win" else 0
-                w_losses = 1 if result == "black_win" else 0
-                w_draws = 1 if result == "draw" else 0
-                await cur.execute(
-                    "UPDATE elo_ratings SET rating = %s, wins = wins + %s, "
-                    "losses = losses + %s, draws = draws + %s, updated_at = now() "
-                    "WHERE ai_id = %s",
-                    (new_w, w_wins, w_losses, w_draws, white_ai_id),
+                    "INSERT INTO elo_ratings (ai_id) VALUES (%s) "
+                    "ON CONFLICT (ai_id) DO NOTHING",
+                    (ai_id,),
                 )
 
-                # Update black
-                b_wins = 1 if result == "black_win" else 0
-                b_losses = 1 if result == "white_win" else 0
-                b_draws = 1 if result == "draw" else 0
-                await cur.execute(
-                    "UPDATE elo_ratings SET rating = %s, wins = wins + %s, "
-                    "losses = losses + %s, draws = draws + %s, updated_at = now() "
-                    "WHERE ai_id = %s",
-                    (new_b, b_wins, b_losses, b_draws, black_ai_id),
-                )
+            await cur.execute(
+                "SELECT ai_id, rating FROM elo_ratings "
+                "WHERE ai_id = ANY(%s) FOR UPDATE",
+                ([white_ai_id, black_ai_id],),
+            )
+            rows = await cur.fetchall()
+            ratings = {str(r["ai_id"]): r["rating"] for r in rows}
 
-                await conn.commit()
-    except Exception:
-        logger.exception("Failed to update ELO for match %s", match_id)
+            white_rating = ratings.get(white_ai_id, DEFAULT_RATING)
+            black_rating = ratings.get(black_ai_id, DEFAULT_RATING)
+
+            new_white, new_black = calculate_new_ratings(
+                white_rating, black_rating, result,
+            )
+
+            # Update ratings and win/loss/draw counters
+            if result == "white_win":
+                w_col, b_col = "wins", "losses"
+            elif result == "black_win":
+                w_col, b_col = "losses", "wins"
+            else:
+                w_col, b_col = "draws", "draws"
+
+            await cur.execute(
+                f"UPDATE elo_ratings SET rating = %s, {w_col} = {w_col} + 1, "
+                "updated_at = now() WHERE ai_id = %s",
+                (new_white, white_ai_id),
+            )
+            await cur.execute(
+                f"UPDATE elo_ratings SET rating = %s, {b_col} = {b_col} + 1, "
+                "updated_at = now() WHERE ai_id = %s",
+                (new_black, black_ai_id),
+            )
+            await conn.commit()
+
+    logger.info(
+        "ELO updated: white %s %d->%d, black %s %d->%d (%s)",
+        white_ai_id, white_rating, new_white,
+        black_ai_id, black_rating, new_black,
+        result,
+    )
 
 
-def _build_pgn(board: chess.Board, white_name: str, black_name: str, result: str) -> str:
-    """Build a minimal PGN string from the board's move stack."""
-    import chess.pgn
-    import io
-
-    game = chess.pgn.Game()
+def _board_to_pgn(board: chess.Board, white_name: str, black_name: str) -> str:
+    """Generate PGN string from a completed board."""
+    game = chess.pgn.Game.from_board(board)
     game.headers["White"] = white_name
     game.headers["Black"] = black_name
-    if result == "white_win":
-        game.headers["Result"] = "1-0"
-    elif result == "black_win":
-        game.headers["Result"] = "0-1"
-    else:
-        game.headers["Result"] = "1/2-1/2"
+    game.headers["Event"] = "OmarBit Arena"
+    result = board.result(claim_draw=True)
+    game.headers["Result"] = result
+    return str(game)
 
-    node = game
-    temp = chess.Board()
-    for move in board.move_stack:
-        node = node.add_variation(move)
-        temp.push(move)
 
-    exporter = chess.pgn.StringExporter(headers=True, variations=False, comments=False)
-    return game.accept(exporter)
+async def play_match(match_id: str) -> None:
+    """Execute a full match from start to finish.
+
+    This is the main entry point called by the Celery worker.
+    """
+    logger.info("Starting match %s", match_id)
+
+    # Load match
+    match = await _load_match(match_id)
+    if not match:
+        logger.error("Match %s not found", match_id)
+        return
+
+    if match["status"] != "scheduled":
+        logger.warning("Match %s in state %s, expected scheduled", match_id, match["status"])
+        return
+
+    white_ai_id = str(match["white_ai_id"])
+    black_ai_id = str(match["black_ai_id"])
+
+    # Load AI profiles
+    white_profile = await _load_ai_profile(white_ai_id)
+    black_profile = await _load_ai_profile(black_ai_id)
+
+    if not white_profile or not black_profile:
+        logger.error("Missing AI profile for match %s", match_id)
+        await _transition_match(
+            match_id, "aborted",
+            forfeit_reason="AI profile not found or inactive",
+        )
+        return
+
+    # Decrypt API keys (decrypt only in handler scope; zero after use per spec)
+    try:
+        white_api_key = decrypt_api_key(bytes(white_profile["api_key_ciphertext"]))
+        black_api_key = decrypt_api_key(bytes(black_profile["api_key_ciphertext"]))
+    except Exception as exc:
+        logger.error("Failed to decrypt API keys for match %s: %s", match_id, type(exc).__name__)
+        await _transition_match(
+            match_id, "aborted",
+            forfeit_reason="API key decryption failed",
+        )
+        return
+
+    # Transition to in_progress
+    if not await _transition_match(match_id, "in_progress"):
+        logger.error("Failed to transition match %s to in_progress", match_id)
+        return
+
+    await _publish_event(match_id, "match_start", {
+        "match_id": match_id,
+        "white_ai_id": white_ai_id,
+        "black_ai_id": black_ai_id,
+        "white_name": white_profile["display_name"],
+        "black_name": black_profile["display_name"],
+    })
+
+    # Set up board and clock
+    board = chess.Board()
+    initial_time, increment = parse_time_control(match["time_control"])
+    clock = MatchClock(
+        white_time=initial_time,
+        black_time=initial_time,
+    )
+
+    # Strike counters for moderation (per AI per match)
+    strike_counts = {white_ai_id: 0, black_ai_id: 0}
+
+    ply = 0
+    try:
+        while not board.is_game_over(claim_draw=True) and ply < MAX_PLIES:
+            # Determine active player
+            is_white_turn = board.turn == chess.WHITE
+            active_ai_id = white_ai_id if is_white_turn else black_ai_id
+            active_profile = white_profile if is_white_turn else black_profile
+            active_api_key = white_api_key if is_white_turn else black_api_key
+
+            # Check clock before requesting move
+            clock.start_turn()
+            if clock.is_flagged():
+                winner = black_ai_id if is_white_turn else white_ai_id
+                side = "White" if is_white_turn else "Black"
+                logger.info("Match %s: %s flagged on time", match_id, side)
+                await _transition_match(
+                    match_id, "forfeit",
+                    winner_ai_id=winner,
+                    forfeit_reason=f"{side} flagged on time",
+                    pgn=_board_to_pgn(board, white_profile["display_name"], black_profile["display_name"]),
+                )
+                result = "black_win" if is_white_turn else "white_win"
+                await _update_elo(match_id, white_ai_id, black_ai_id, result)
+                await _publish_event(match_id, "match_end", {
+                    "status": "forfeit",
+                    "winner_ai_id": winner,
+                    "reason": f"{side} flagged on time",
+                })
+                return
+
+            # Get legal moves
+            legal_moves = [board.san(m) for m in board.legal_moves]
+
+            # Build match context for the provider prompt
+            match_context = {
+                "match_id": match_id,
+                "ply": ply,
+                "white_name": white_profile["display_name"],
+                "black_name": black_profile["display_name"],
+                "is_white": is_white_turn,
+                "white_time": clock.white_time,
+                "black_time": clock.black_time,
+            }
+
+            # Request move from provider via orchestrator
+            move_result = await orchestrate_move(
+                provider_name=active_profile["provider"],
+                api_key=active_api_key,
+                fen=board.fen(),
+                legal_moves=legal_moves,
+                style=active_profile["style"],
+                match_context=match_context,
+                strike_count=strike_counts[active_ai_id],
+            )
+
+            if move_result.forfeit:
+                winner = black_ai_id if is_white_turn else white_ai_id
+                logger.info(
+                    "Match %s: %s forfeited — %s",
+                    match_id, active_profile["display_name"], move_result.forfeit_reason,
+                )
+                await _transition_match(
+                    match_id, "forfeit",
+                    winner_ai_id=winner,
+                    forfeit_reason=move_result.forfeit_reason,
+                    pgn=_board_to_pgn(board, white_profile["display_name"], black_profile["display_name"]),
+                )
+                result = "black_win" if is_white_turn else "white_win"
+                await _update_elo(match_id, white_ai_id, black_ai_id, result)
+                await _publish_event(match_id, "match_end", {
+                    "status": "forfeit",
+                    "winner_ai_id": winner,
+                    "reason": move_result.forfeit_reason,
+                })
+                return
+
+            # Apply move to board
+            try:
+                board.push_san(move_result.san)
+            except (chess.InvalidMoveError, chess.IllegalMoveError, chess.AmbiguousMoveError) as exc:
+                logger.error(
+                    "Match %s: Invalid move %s from %s: %s",
+                    match_id, move_result.san, active_profile["display_name"], exc,
+                )
+                winner = black_ai_id if is_white_turn else white_ai_id
+                await _transition_match(
+                    match_id, "forfeit",
+                    winner_ai_id=winner,
+                    forfeit_reason=f"Invalid move from {active_profile['display_name']}: {move_result.san}",
+                    pgn=_board_to_pgn(board, white_profile["display_name"], black_profile["display_name"]),
+                )
+                result = "black_win" if is_white_turn else "white_win"
+                await _update_elo(match_id, white_ai_id, black_ai_id, result)
+                await _publish_event(match_id, "match_end", {
+                    "status": "forfeit",
+                    "winner_ai_id": winner,
+                    "reason": f"Invalid move: {move_result.san}",
+                })
+                return
+
+            # Record clock time consumed
+            clock.end_turn()
+
+            # Get Stockfish evaluation (non-blocking, best-effort)
+            eval_cp = await evaluate_position(board.fen())
+
+            # Track moderation strikes
+            if move_result.chat_line == "[message filtered]":
+                strike_counts[active_ai_id] += 1
+
+            ply += 1
+
+            # Persist move
+            await _insert_move(
+                match_id=match_id,
+                ply=ply,
+                san=move_result.san,
+                fen=board.fen(),
+                eval_cp=eval_cp,
+                think_summary=move_result.think_summary,
+                chat_line=move_result.chat_line,
+            )
+
+            # Publish move event
+            await _publish_event(match_id, "move", {
+                "ply": ply,
+                "san": move_result.san,
+                "fen": board.fen(),
+                "eval_cp": eval_cp,
+                "think_summary": move_result.think_summary,
+                "chat_line": move_result.chat_line,
+                "white_time": round(clock.white_time, 1),
+                "black_time": round(clock.black_time, 1),
+            })
+
+            # Small delay to prevent overwhelming providers
+            await asyncio.sleep(0.1)
+
+        # Game over — determine result
+        pgn_str = _board_to_pgn(board, white_profile["display_name"], black_profile["display_name"])
+
+        if board.is_checkmate():
+            # The side that just moved delivered checkmate
+            winner = white_ai_id if board.turn == chess.BLACK else black_ai_id
+            result = "white_win" if winner == white_ai_id else "black_win"
+            await _transition_match(
+                match_id, "completed",
+                winner_ai_id=winner,
+                pgn=pgn_str,
+            )
+        else:
+            # Draw (stalemate, insufficient material, 50-move, repetition, max plies)
+            result = "draw"
+            await _transition_match(
+                match_id, "completed",
+                pgn=pgn_str,
+            )
+
+        await _update_elo(match_id, white_ai_id, black_ai_id, result)
+
+        await _publish_event(match_id, "match_end", {
+            "status": "completed",
+            "result": result,
+            "winner_ai_id": winner if result != "draw" else None,
+            "pgn": pgn_str,
+        })
+
+        logger.info("Match %s completed: %s", match_id, result)
+
+    except Exception as exc:
+        logger.exception("Match %s crashed: %s", match_id, exc)
+        await _transition_match(
+            match_id, "aborted",
+            forfeit_reason=f"Internal error: {type(exc).__name__}",
+        )
+        await _publish_event(match_id, "match_end", {
+            "status": "aborted",
+            "reason": "Internal error",
+        })
+    finally:
+        # Zero API keys after use (spec anti-pattern guard)
+        white_api_key = ""  # noqa: F841
+        black_api_key = ""  # noqa: F841
+
+
+# Alias for backward compatibility with the asyncio background task approach
+run_match = play_match
