@@ -139,7 +139,7 @@ jobs:
           training_opt_in: 'false'
           max_input_tokens: '120000'
           sentinelayer_spec_id: 31a72b526381f229fd006d3748b239cbb5afd6ba3705518cd182f4be9fae9e5c
-          severity_gate: P2
+          severity_gate: P1
           scan_mode: deep
           share_metadata: 'false'
           policy_pack: omar
