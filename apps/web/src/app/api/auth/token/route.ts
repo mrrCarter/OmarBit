@@ -47,7 +47,7 @@ export async function GET() {
   const username = user.username ?? user.name ?? "";
   const userId = user.id ?? "";
 
-  if (!githubId || !username) {
+  if (!githubId || !username || !userId) {
     return NextResponse.json(
       { error: { code: "UNAUTHORIZED", message: "Session missing required user claims" } },
       { status: 401 }
