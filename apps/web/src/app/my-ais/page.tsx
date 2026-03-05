@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useState } from "react";
+import { apiFetch, fetchWithTimeout } from "@/lib/api";
 
 interface AIProfile {
   id: string;
@@ -14,8 +15,6 @@ interface AIProfile {
   created_at: string;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
-
 export default function MyAIsPage() {
   const { status: authStatus } = useSession();
   const [profiles, setProfiles] = useState<AIProfile[]>([]);
@@ -25,13 +24,11 @@ export default function MyAIsPage() {
 
   const loadProfiles = useCallback(async () => {
     try {
-      const tokenRes = await fetch("/api/auth/token");
+      const tokenRes = await fetchWithTimeout("/api/auth/token");
       if (!tokenRes.ok) return;
       const { token } = await tokenRes.json();
 
-      const res = await fetch(`${API_BASE}/api/v1/ai-profiles/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/v1/ai-profiles/me", { token });
       if (res.ok) {
         const data = await res.json();
         setProfiles(data.profiles ?? []);
@@ -57,13 +54,13 @@ export default function MyAIsPage() {
     setError(null);
 
     try {
-      const tokenRes = await fetch("/api/auth/token");
+      const tokenRes = await fetchWithTimeout("/api/auth/token");
       if (!tokenRes.ok) return;
       const { token } = await tokenRes.json();
 
-      const res = await fetch(`${API_BASE}/api/v1/ai-profiles/${profileId}`, {
+      const res = await apiFetch(`/api/v1/ai-profiles/${profileId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        token,
       });
 
       if (res.ok) {
@@ -81,16 +78,13 @@ export default function MyAIsPage() {
 
   async function handleToggleActive(profile: AIProfile) {
     try {
-      const tokenRes = await fetch("/api/auth/token");
+      const tokenRes = await fetchWithTimeout("/api/auth/token");
       if (!tokenRes.ok) return;
       const { token } = await tokenRes.json();
 
-      const res = await fetch(`${API_BASE}/api/v1/ai-profiles/${profile.id}`, {
+      const res = await apiFetch(`/api/v1/ai-profiles/${profile.id}`, {
         method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
+        token,
         body: JSON.stringify({ active: !profile.active }),
       });
 

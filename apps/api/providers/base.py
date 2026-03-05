@@ -14,6 +14,7 @@ _CONNECT_TIMEOUT = 3.0
 _READ_TIMEOUT = 20.0
 _MAX_RETRIES = 2
 _BACKOFF_SCHEDULE = (0.5, 1.0)
+_TIMEOUT = httpx.Timeout(_CONNECT_TIMEOUT, read=_READ_TIMEOUT)
 
 # Pattern to strip API keys from URLs (e.g., Gemini ?key=...)
 _KEY_REDACT_RE = re.compile(r"(key=)[^&\s]+", re.IGNORECASE)
@@ -92,15 +93,13 @@ class BaseProvider:
 
         owns_client = client is None
         if owns_client:
-            client = httpx.AsyncClient(
-                timeout=httpx.Timeout(_CONNECT_TIMEOUT, read=_READ_TIMEOUT),
-            )
+            client = httpx.AsyncClient(timeout=_TIMEOUT)
 
         last_err: Exception | None = None
         try:
             for attempt in range(_MAX_RETRIES + 1):
                 try:
-                    resp = await client.post(url, headers=headers, json=body)
+                    resp = await client.post(url, headers=headers, json=body, timeout=_TIMEOUT)
 
                     if resp.status_code == 429:
                         raise QuotaExhaustedError(

@@ -15,7 +15,9 @@ _TEST_SECRET = os.environ["NEXTAUTH_SECRET"]
 
 
 def _make_token(payload: dict) -> str:
-    return jwt.encode(payload, _TEST_SECRET, algorithm="HS256")
+    import time
+    defaults = {"iss": "omarbit-web", "aud": "omarbit-api", "iat": int(time.time()), "exp": int(time.time()) + 3600}
+    return jwt.encode({**defaults, **payload}, _TEST_SECRET, algorithm="HS256")
 
 
 def test_missing_auth_header_returns_401():

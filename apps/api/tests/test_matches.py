@@ -14,8 +14,14 @@ _TEST_SECRET = os.environ["NEXTAUTH_SECRET"]
 
 
 def _make_token() -> str:
+    import time
     return jwt.encode(
-        {"github_id": "12345", "username": "testuser", "user_id": "00000000-0000-0000-0000-000000000000"},
+        {
+            "github_id": "12345", "username": "testuser",
+            "user_id": "00000000-0000-0000-0000-000000000000",
+            "iss": "omarbit-web", "aud": "omarbit-api",
+            "iat": int(time.time()), "exp": int(time.time()) + 3600,
+        },
         _TEST_SECRET,
         algorithm="HS256",
     )

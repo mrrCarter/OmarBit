@@ -10,7 +10,7 @@ def _get_master_key() -> bytes:
     raw = os.environ.get("ENCRYPTION_MASTER_KEY_BASE64", "")
     if not raw:
         raise RuntimeError("ENCRYPTION_MASTER_KEY_BASE64 not set")
-    key = base64.b64decode(raw)
+    key = base64.b64decode(raw, validate=True)
     if len(key) != 32:
         raise RuntimeError("ENCRYPTION_MASTER_KEY_BASE64 must decode to exactly 32 bytes")
     return key

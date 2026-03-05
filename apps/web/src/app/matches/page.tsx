@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
+import { apiFetch } from "@/lib/api";
 
 interface Match {
   id: string;
@@ -16,8 +17,6 @@ interface Match {
   created_at: string;
   completed_at: string | null;
 }
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 const STATUS_COLORS: Record<string, string> = {
   in_progress: "bg-green-900/40 text-green-400",
@@ -35,7 +34,9 @@ export default function MatchesPage() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch(`${API_BASE}/api/v1/matches?limit=50`);
+        const res = await apiFetch("/api/v1/matches?limit=50", {
+          timeoutMs: 10000,
+        });
         if (res.ok) {
           const data = await res.json();
           setMatches(data.matches ?? []);

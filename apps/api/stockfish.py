@@ -9,6 +9,7 @@ _CONNECT_TIMEOUT = 1.0
 _READ_TIMEOUT = 5.0
 _MAX_RETRIES = 1
 _BACKOFF = 0.2
+_TIMEOUT = httpx.Timeout(_CONNECT_TIMEOUT, read=_READ_TIMEOUT)
 
 
 async def validate_move(fen: str, san: str) -> bool:
@@ -21,12 +22,11 @@ async def validate_move(fen: str, san: str) -> bool:
     last_err: Exception | None = None
     while attempt <= _MAX_RETRIES:
         try:
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(_CONNECT_TIMEOUT, read=_READ_TIMEOUT),
-            ) as client:
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
                 resp = await client.post(
                     f"{STOCKFISH_URL}/validate",
                     json={"fen": fen, "move": san},
+                    timeout=_TIMEOUT,
                 )
                 if resp.status_code == 200:
                     data = resp.json()
@@ -46,12 +46,11 @@ async def validate_move(fen: str, san: str) -> bool:
 async def evaluate_position(fen: str) -> int | None:
     """Get Stockfish evaluation in centipawns. Returns None on failure."""
     try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(_CONNECT_TIMEOUT, read=_READ_TIMEOUT),
-        ) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(
                 f"{STOCKFISH_URL}/evaluate",
                 json={"fen": fen},
+                timeout=_TIMEOUT,
             )
             if resp.status_code == 200:
                 data = resp.json()

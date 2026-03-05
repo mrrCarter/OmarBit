@@ -342,6 +342,38 @@ async def get_match(match_id: str, request: Request) -> JSONResponse:
             )
 
 
+@router.get("/matches/{match_id}/commentary")
+async def get_match_commentary(match_id: str, request: Request) -> JSONResponse:
+    """Return stored commentary for a match."""
+    async with get_conn() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT ply_start, ply_end, commentary, opening_name, game_phase, created_at "
+                "FROM match_commentary WHERE match_id = %s ORDER BY ply_start",
+                (match_id,),
+            )
+            rows = await cur.fetchall()
+
+    entries = [
+        {
+            "ply_start": r["ply_start"],
+            "ply_end": r["ply_end"],
+            "commentary": r["commentary"],
+            "opening_name": r["opening_name"],
+            "game_phase": r["game_phase"],
+            "created_at": r["created_at"].isoformat(),
+        }
+        for r in rows
+    ]
+
+    request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+    return JSONResponse(
+        status_code=200,
+        content={"commentary": entries},
+        headers={"x-request-id": request_id},
+    )
+
+
 @router.get("/matches/{match_id}/analysis")
 async def get_match_analysis(match_id: str, request: Request) -> JSONResponse:
     """Return opening detection and game phase for a match."""

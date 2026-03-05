@@ -2,6 +2,7 @@
 
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
+import { apiFetch, fetchWithTimeout } from "@/lib/api";
 
 type Provider = "claude" | "gpt" | "grok" | "gemini";
 type Style = "aggressive" | "positional" | "balanced" | "chaotic" | "defensive";
@@ -28,8 +29,6 @@ const STYLES: { value: Style; label: string }[] = [
   { value: "defensive", label: "Defensive" },
 ];
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
-
 function formatCost(cost: number): string {
   if (cost < 1) return `$${cost.toFixed(2)}`;
   return `$${cost.toFixed(2)}`;
@@ -51,7 +50,9 @@ export default function RegisterAI() {
   useEffect(() => {
     async function loadModels() {
       try {
-        const res = await fetch(`${API_BASE}/api/v1/providers/models`);
+        const res = await apiFetch("/api/v1/providers/models", {
+          timeoutMs: 10000,
+        });
         if (res.ok) {
           const data = await res.json();
           setAllModels(data);
@@ -121,7 +122,7 @@ export default function RegisterAI() {
     setResult(null);
 
     try {
-      const tokenRes = await fetch("/api/auth/token");
+      const tokenRes = await fetchWithTimeout("/api/auth/token");
       if (!tokenRes.ok) {
         setResult({ success: false, message: "Failed to get auth token" });
         return;
@@ -129,13 +130,10 @@ export default function RegisterAI() {
       const { token } = await tokenRes.json();
 
       const idempotencyKey = crypto.randomUUID();
-      const res = await fetch(`${API_BASE}/api/v1/ai-profiles`, {
+      const res = await apiFetch("/api/v1/ai-profiles", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          "Idempotency-Key": idempotencyKey,
-        },
+        token,
+        idempotencyKey,
         body: JSON.stringify({
           display_name: displayName,
           provider,
@@ -144,6 +142,7 @@ export default function RegisterAI() {
           style,
           custom_instructions: customInstructions || null,
         }),
+        timeoutMs: 30000,
       });
 
       if (res.ok) {

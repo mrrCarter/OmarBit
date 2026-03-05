@@ -1,0 +1,6 @@
+fastapi==0.115.0 \
+    --hash=sha256:17ea427674467486e997206a5ab25760f6b09e069f099b96f5b55a32fb6f1631
+uvicorn==0.30.6 \
+    --hash=sha256:65fd46fe3fda5bdc1b03b94eb634923ff18cd35b2f084813ea79d1f103f711b5
+python-chess==1.999 \
+    --hash=sha256:93b562f8f1124cb7bf56fb095e18743758e69dc6a028ccda0badcaa5c59d88c8

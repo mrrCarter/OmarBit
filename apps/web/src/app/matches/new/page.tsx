@@ -3,6 +3,7 @@
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { apiFetch, fetchWithTimeout } from "@/lib/api";
 
 interface AIProfile {
   id: string;
@@ -11,8 +12,6 @@ interface AIProfile {
   style: string;
   active: boolean;
 }
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 export default function NewMatchPage() {
   const { data: session, status } = useSession();
@@ -29,12 +28,13 @@ export default function NewMatchPage() {
 
     async function loadProfiles() {
       try {
-        const tokenRes = await fetch("/api/auth/token");
+        const tokenRes = await fetchWithTimeout("/api/auth/token");
         if (!tokenRes.ok) return;
         const { token } = await tokenRes.json();
 
-        const res = await fetch(`${API_BASE}/api/v1/ai-profiles/me`, {
-          headers: { Authorization: `Bearer ${token}` },
+        const res = await apiFetch("/api/v1/ai-profiles/me", {
+          token,
+          timeoutMs: 10000,
         });
         if (res.ok) {
           const data = await res.json();
@@ -84,25 +84,23 @@ export default function NewMatchPage() {
     setError("");
 
     try {
-      const tokenRes = await fetch("/api/auth/token");
+      const tokenRes = await fetchWithTimeout("/api/auth/token");
       if (!tokenRes.ok) {
         setError("Failed to get auth token");
         return;
       }
       const { token } = await tokenRes.json();
 
-      const res = await fetch(`${API_BASE}/api/v1/matches`, {
+      const res = await apiFetch("/api/v1/matches", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          "Idempotency-Key": crypto.randomUUID(),
-        },
+        token,
+        idempotencyKey: crypto.randomUUID(),
         body: JSON.stringify({
           white_ai_id: whiteId,
           black_ai_id: blackId,
           time_control: "5+0",
         }),
+        timeoutMs: 15000,
       });
 
       if (res.ok) {

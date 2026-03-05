@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ChessBoard } from "@/components/chess-board";
+import { apiFetch, fetchWithTimeout } from "@/lib/api";
 
 interface MoveEvent {
   ply: number;
@@ -23,7 +24,7 @@ interface MatchEnd {
   pgn?: string;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+const SSE_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -67,6 +68,9 @@ export default function MatchPage() {
   const [opening, setOpening] = useState<{ name: string; eco: string } | null>(null);
   const [pgn, setPgn] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [commentary, setCommentary] = useState<
+    { ply: number; commentary: string; phase?: string; tension?: string }[]
+  >([]);
 
   const moveListRef = useRef<HTMLDivElement>(null);
 
@@ -83,7 +87,9 @@ export default function MatchPage() {
   useEffect(() => {
     async function loadMatch() {
       try {
-        const res = await fetch(`${API_BASE}/api/v1/matches/${matchId}`);
+        const res = await apiFetch(`/api/v1/matches/${matchId}`, {
+          timeoutMs: 10000,
+        });
         if (res.ok) {
           const data = await res.json();
           setMatchInfo({
@@ -106,7 +112,7 @@ export default function MatchPage() {
 
     function connect() {
       eventSource = new EventSource(
-        `${API_BASE}/api/v1/stream/matches/${matchId}`
+        `${SSE_BASE}/api/v1/stream/matches/${matchId}`
       );
 
       eventSource.onopen = () => setConnected(true);
@@ -132,6 +138,14 @@ export default function MatchPage() {
           black_name: data.black_name ?? prev.black_name,
           status: "in_progress",
         }));
+      });
+
+      eventSource.addEventListener("commentary", (e) => {
+        const data = JSON.parse(e.data);
+        setCommentary((prev) => {
+          if (prev.some((c) => c.ply === data.ply)) return prev;
+          return [...prev, data];
+        });
       });
 
       eventSource.addEventListener("match_end", (e) => {
@@ -183,7 +197,9 @@ export default function MatchPage() {
     if (moves.length < 2) return;
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/v1/matches/${matchId}/analysis`);
+        const res = await apiFetch(`/api/v1/matches/${matchId}/analysis`, {
+          timeoutMs: 10000,
+        });
         if (res.ok) {
           const data = await res.json();
           if (data.opening_name) {
@@ -247,13 +263,14 @@ export default function MatchPage() {
   async function handleStart() {
     setStarting(true);
     try {
-      const tokenRes = await fetch("/api/auth/token");
+      const tokenRes = await fetchWithTimeout("/api/auth/token");
       if (!tokenRes.ok) return;
       const { token } = await tokenRes.json();
 
-      const res = await fetch(`${API_BASE}/api/v1/matches/${matchId}/start`, {
+      const res = await apiFetch(`/api/v1/matches/${matchId}/start`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        token,
+        timeoutMs: 10000,
       });
       if (res.ok) {
         setMatchInfo((prev) => ({ ...prev, status: "in_progress" }));
@@ -583,6 +600,27 @@ export default function MatchPage() {
               )}
             </div>
           </div>
+
+          {/* Spectator Commentary */}
+          {commentary.length > 0 && (
+            <div className="mt-3 flex flex-col gap-0.5 rounded border border-amber-900/30 bg-amber-950/20 p-2">
+              <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-amber-600">
+                Commentary
+              </h3>
+              <div className="max-h-[120px] space-y-1.5 overflow-y-auto">
+                {commentary.slice(-5).map((c) => (
+                  <div key={c.ply} className="text-xs">
+                    <p className="text-amber-200/80">{c.commentary}</p>
+                    {c.phase && (
+                      <span className="text-[10px] text-amber-700">
+                        {c.phase} {c.tension === "critical" ? " — Critical moment!" : ""}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Match result */}
           {matchEnd && (

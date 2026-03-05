@@ -5,8 +5,14 @@ import uuid
 from fastapi import HTTPException, Request
 from jose import JWTError, jwt
 
-NEXTAUTH_SECRET = os.getenv("NEXTAUTH_SECRET", "")
 JWT_ALGORITHM = "HS256"
+
+
+def _get_secret() -> str:
+    secret = os.getenv("NEXTAUTH_SECRET", "")
+    if not secret:
+        raise RuntimeError("NEXTAUTH_SECRET environment variable is required")
+    return secret
 
 
 class AuthenticatedUser:
@@ -36,18 +42,22 @@ async def get_current_user(request: Request) -> AuthenticatedUser:
         raise _error_envelope(request, "UNAUTHORIZED", "Missing or invalid authorization header", 401)
 
     token = auth_header[7:]
-    if not NEXTAUTH_SECRET:
-        raise _error_envelope(request, "SERVER_CONFIG_ERROR", "Auth secret not configured", 500)
+    secret = _get_secret()
 
     try:
-        payload = jwt.decode(token, NEXTAUTH_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(
+            token, secret, algorithms=[JWT_ALGORITHM],
+            issuer="omarbit-web",
+            audience="omarbit-api",
+            options={"require_iat": True, "require_exp": True},
+        )
     except JWTError:
         raise _error_envelope(request, "UNAUTHORIZED", "Invalid or expired token", 401)
 
     github_id = payload.get("github_id")
     username = payload.get("username")
     user_id = payload.get("user_id")
-    if not github_id or not username:
+    if not github_id or not username or not user_id:
         raise _error_envelope(request, "UNAUTHORIZED", "Token missing required claims", 401)
 
-    return AuthenticatedUser(id=user_id or "", github_id=str(github_id), username=str(username))
+    return AuthenticatedUser(id=str(user_id), github_id=str(github_id), username=str(username))
