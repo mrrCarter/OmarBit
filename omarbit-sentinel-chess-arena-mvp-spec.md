@@ -7,8 +7,8 @@ OmarBit Sentinel Chess Arena is a greenfield, security-conscious web platform wh
 - Live spectator stream (SSE) for:
   - game state updates
   - clock updates
-  - AI chat lines (guardrailed for teen-safe language)
-  - optional model “thought summary” stream (not raw chain-of-thought)
+  - AI chat lines (guardrailed per Moderation Matrix below)
+  - model “thought summary” stream (summary-only; never raw chain-of-thought in transit or at rest)
 - ELO leaderboard with win/loss/draw stats.
 - Stockfish referee:
   - move legality validation
@@ -42,10 +42,28 @@ OmarBit Sentinel Chess Arena is a greenfield, security-conscious web platform wh
 
 ## 1.4 Initial Scaffolding Plan
 ```bash
-mkdir -p omarbit/{apps/web,apps/api,workers,infra,.claude/hooks}
+# Monorepo root
+mkdir -p omarbit/{apps/web,apps/api,workers,infra,.github/workflows,.claude/hooks,docs}
 cd omarbit
 npm init -y
-python3 -m venv .venv && source .venv/bin/activate
+# Configure npm workspaces
+npx json -I -f package.json -e 'this.workspaces=["apps/web"]'
+npx json -I -f package.json -e 'this.engines={"node":">=20"}'
+echo 'engine-strict=true' > .npmrc
+echo 'ignore-scripts=true' >> .npmrc
+
+# Frontend (Next.js 15 + TypeScript + Tailwind)
+cd apps/web
+npx create-next-app@latest . --typescript --tailwind --app --eslint --no-src-dir --import-alias "@/*"
+cd ../..
+
+# Backend (FastAPI + Python 3.12)
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install pip==24.3.1
+pip install fastapi==0.115.12 uvicorn==0.34.3 httpx==0.28.1 celery==5.4.0 redis==5.3.0 psycopg[binary]==3.2.6 python-jose[cryptography]==3.4.0 cryptography==44.0.3
+pip-compile --generate-hashes -o apps/api/requirements-locked.txt apps/api/requirements.in
+pip install ruff==0.11.12 pytest==8.4.0 mypy==1.16.0
+pip-compile --generate-hashes -o apps/api/requirements-dev-locked.txt apps/api/requirements-dev.in
 ```
 
 ## 1.5 Target File Structure
@@ -253,6 +271,49 @@ ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS","http://localhost:3000").split(",")
 - [ ] Structured logs redact `api_key`, `authorization`, cookies.
 - [ ] Retention: logs 30d, match telemetry 180d, user deletion hard-delete + crypto-shred within 7d.
 
+## 5.1 Moderation Matrix (AI Chat Lines)
+Policy: teen-safe (appropriate for ages 13+). AI chat lines are generated text
+displayed to spectators. Every chat line passes through a moderation filter
+before broadcast.
+
+| Blocked Class | Examples | Enforcement |
+|---|---|---|
+| Hate/harassment | slurs, threats, dehumanization | Drop line, log incident, increment strike counter |
+| Sexual content | explicit, suggestive, innuendo | Drop line, log incident |
+| Violence/gore | graphic descriptions, glorification | Drop line, log incident |
+| Self-harm | instructions, encouragement | Drop line, log incident |
+| PII leakage | real names, emails, phone numbers | Drop line, redact from logs |
+| Prompt injection | attempts to override system prompt | Drop line, log as security event |
+
+Rate limits per AI per match:
+- Max 1 chat line per move (tied to ply commit).
+- Max 280 characters per line.
+- 3 strikes in one match => chat muted for remainder of match.
+
+Language policy:
+- English-only in MVP. Non-ASCII art/unicode chess symbols allowed.
+- Profanity filter: block NSFW word list + provider-side content filter.
+
+Enforcement path:
+1. Provider response received.
+2. Extract `chat_line` field from structured output.
+3. Run through local blocklist + regex filter.
+4. If line passes, broadcast via SSE.
+5. If blocked, replace with `[message filtered]` and log the violation.
+
+## 5.2 Thought-Stream Contract
+Policy: **summary-only, never raw chain-of-thought**.
+
+| Rule | Detail |
+|---|---|
+| Generation | Provider prompt requests a 1-2 sentence strategic summary, not reasoning trace |
+| Transit | SSE `think_summary` field carries the summary string only |
+| Storage | `match_moves.think_summary` column stores the summary (max 500 chars) |
+| Never stored | Raw model `reasoning`, `thinking`, `scratchpad`, or CoT tokens |
+| Never transmitted | No SSE event carries raw reasoning content |
+| Redaction | If provider returns unsolicited CoT, strip before storage/broadcast |
+| Logging | Logs may reference summary length/presence but never content of raw CoT |
+
 ## Webhook/Signature Verification Function (for future Custom Endpoint + internal signed callbacks)
 ```ts
 import crypto from "crypto";
@@ -314,14 +375,14 @@ echo "[Omar Gate] passed"
 - Greenfield repo, no frozen modules.
 - Deployment on Docker-capable Linux.
 - PostgreSQL + Redis available.
-- No raw chain-of-thought storage requirement (store summaries only).
+- No raw chain-of-thought: summary-only in transit (SSE), at rest (DB), and in logs. See Section 5.2 Thought-Stream Contract.
 
 ## Open Questions
 - Who can view private AI keys metadata in admin panel?
 - Should spectators require login to chat or purely read-only?
 - Are AI chat logs public forever or user-deletable?
 - Should BYOAI owners cap spend per day?
-- What moderation strictness for “unfiltered but teen-safe” chat?
+- ~~What moderation strictness for “unfiltered but teen-safe” chat?~~ **Resolved**: See Section 5.1 Moderation Matrix.
 - Which cloud/KMS provider is preferred?
 
 ## User Flows
@@ -365,6 +426,12 @@ echo "[Omar Gate] passed"
 | Storing raw chain-of-thought | Safety/compliance risk | `think_summary = sanitize_summary(model_output["summary"])` |
 | Env-var-only feature flags | No runtime control | `PATCH /api/v1/admin/feature-flags/{key}` persisted in DB |
 | Non-transactional ELO updates | Rating corruption | `BEGIN; UPDATE elo_ratings...; UPDATE matches...; COMMIT;` |
+| Provider API key in client bundle | Key theft via browser DevTools | Never import provider keys in `apps/web/`; all provider calls via `apps/api/` only |
+| Move commit without Stockfish legality check | Illegal game state corruption | Every `match_moves` INSERT must be preceded by Stockfish `isLegal(fen, san)` validation |
+| ELO update outside DB transaction | Split-brain ratings on partial failure | Wrap ELO delta + match status update in single `BEGIN...COMMIT` block |
+| Mutation endpoint without Idempotency-Key | Duplicate side effects on retry | Middleware rejects POST/PATCH/DELETE without `Idempotency-Key` header → 400 |
+| Raw CoT stored or transmitted | Safety/compliance/IP risk | `think_summary = sanitize_summary(output, max_len=500)`; never store `reasoning` field |
+| Provider key decrypted at import time | Key in memory longer than needed | Decrypt only inside request handler scope; zero after use |
 
 ## Security & Data Handling
 - Token lifecycle: OAuth session 8h, refresh rotation 24h max, revoke on logout.
@@ -447,61 +514,12 @@ Mitigations: circuit breakers, queue buffering, moderation filters, fallback sta
 # Build Guide (Playbook) — Executable Companion
 This spec is implemented via `docs/playbook.md` as the executable companion.
 
-## docker-compose.yml
-```yaml
-version: "3.9"
-services:
-  db:
-    image: postgres:16@sha256:6f8b8b...
-    environment:
-      POSTGRES_USER: omarbit
-      POSTGRES_PASSWORD: omarbit
-      POSTGRES_DB: omarbit
-    ports: ["5432:5432"]
-  redis:
-    image: redis:7@sha256:1f4c3d...
-    ports: ["6379:6379"]
-  minio:
-    image: minio/minio:RELEASE.2024-05-10T01-41-38Z@sha256:5a2b...
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: omarbit
-      MINIO_ROOT_PASSWORD: omarbit123
-    ports: ["9000:9000","9001:9001"]
-  api:
-    build: ./apps/api
-    env_file: .env
-    ports: ["8000:8000"]
-    depends_on: [db, redis]
-  web:
-    build: ./apps/web
-    env_file: .env
-    ports: ["3000:3000"]
-    depends_on: [api]
-  worker:
-    build: ./workers
-    env_file: .env
-    depends_on: [api, redis, db]
-```
+## Infrastructure Files
+Canonical infrastructure files live in the repo:
+- `infra/docker-compose.yml` — infrastructure-only services (db, redis, minio), digest-pinned, healthchecked, localhost-bound. No app services in compose (apps run natively for dev).
+- `.env.example` — empty placeholders only, no real secrets. All secrets injected via `${VAR:?required}` fail-fast syntax.
 
-## .env.example
-```bash
-NODE_ENV=development
-DATABASE_URL=postgresql://omarbit:omarbit@localhost:5432/omarbit
-REDIS_URL=redis://localhost:6379/0
-NEXTAUTH_URL=http://localhost:3000
-GITHUB_CLIENT_ID=github_client_id_here
-GITHUB_CLIENT_SECRET=github_client_secret_here
-API_BASE_URL=http://localhost:8000
-CORS_ORIGINS=http://localhost:3000
-KMS_KEY_ID=local-dev-key
-ENCRYPTION_MASTER_KEY_BASE64=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
-ANTHROPIC_API_URL=https://api.anthropic.com
-OPENAI_API_URL=https://api.openai.com
-GROK_API_URL=https://api.x.ai
-GEMINI_API_URL=https://generativelanguage.googleapis.com
-STOCKFISH_URL=http://stockfish:8080
-```
+See the Build Guide (playbook) for exact run commands.
 
 ## Main application entry point file (`apps/api/main.py`)
 ```py
@@ -565,100 +583,9 @@ def health():
 
 <!-- SENTINELAYER_OMAR_SETUP_EMBED -->
 ## OMAR GATE SETUP (DETERMINISTIC)
-- Commit this workflow to `.github/workflows/omar-gate.yml`.
-- Keep `sentinelayer_spec_id` bound to this spec for policy-aware reviews.
-
-```yaml
-# Omar Gate — AI-powered security review for pull requests.
-# Runs the SentinelLayer Omar action on every PR to surface security,
-# compliance, and code-quality issues before merge. Findings are posted
-# as inline PR comments with severity levels (P1-P4).
-# Docs: https://docs.sentinelayer.com/omar-gate
-
-name: Omar Gate Security Review
-on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-
-permissions:
-  contents: read
-  checks: write
-  pull-requests: write
-
-jobs:
-  quality-gates:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Run quality gates
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -f pnpm-lock.yaml ]; then
-            corepack enable
-            pnpm i --frozen-lockfile
-          elif [ -f package-lock.json ]; then
-            npm ci
-          elif [ -f yarn.lock ]; then
-            yarn install --frozen-lockfile
-          elif [ -f package.json ]; then
-            npm install
-          fi
-          if [ -f package.json ]; then
-            npm run typecheck --if-present
-            npm run lint --if-present
-            npm test --if-present
-            npm run build --if-present
-          fi
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            python -m pip install -r requirements.txt
-          elif [ -f pyproject.toml ]; then
-            python -m pip install -e .
-          fi
-          if [ -f requirements.txt ] || [ -f pyproject.toml ]; then
-            python -m pip install ruff pytest
-            ruff check .
-            python -m pytest -q
-          fi
-  security-gate:
-    needs: quality-gates
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      checks: write
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: mrrCarter/sentinelayer-v1-action@14ca51c75ca81fdb6e6b7668d417d6a5abc39018
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
-          use_codex: 'true'
-          codex_only: 'true'
-          codex_model: gpt-5.3-codex
-          codex_timeout: '480'
-          model_fallback: gpt-4.1-mini
-          llm_failure_policy: block
-          run_harness: 'true'
-          fork_policy: block
-          telemetry: 'true'
-          telemetry_tier: '1'
-          sentinelayer_managed_llm: 'false'
-          training_opt_in: 'false'
-          max_input_tokens: '120000'
-          sentinelayer_spec_id: 31a72b526381f229fd006d3748b239cbb5afd6ba3705518cd182f4be9fae9e5c
-          severity_gate: P2
-          scan_mode: deep
-          share_metadata: 'true'
-          policy_pack: omar
-          policy_pack_version: v1
-```
+- Canonical workflow: `.github/workflows/omar-gate.yml` (already committed, SHA-pinned actions).
+- `sentinelayer_spec_id`: `31a72b526381f229fd006d3748b239cbb5afd6ba3705518cd182f4be9fae9e5c`
+- `severity_gate`: `P1` (P0/P1 block merge; P2 tracked but non-blocking).
+- `telemetry`: `false`, `share_metadata`: `false`, `training_opt_in`: `false`.
+- `fork_policy`: `block` (prevents fork PRs from accessing secrets).
+- Do not duplicate the full YAML here — the repo file is the single source of truth.

@@ -1,28 +1,77 @@
 # STEP-BY-STEP BUILD GUIDE: OmarBit Sentinel Chess Arena MVP
 
 ## 1. PREREQUISITES
-- Git >= 2.40: https://git-scm.com/downloads
+- Git >= 2.40
+- Node.js >= 20 (LTS) + npm >= 10
+- Python 3.12 + pip + pip-tools (for `pip-compile --generate-hashes`)
+- Docker + Docker Compose v2 (for Postgres, Redis, MinIO)
+- GitHub CLI (`gh`) for PR workflows
 
 ## 1.5. RECOMMENDED BUILD ENVIRONMENT
-Choose the tool that matches your style:
-- **See every change (recommended for beginners):** VS Code + GitHub Copilot - shows inline diffs for every file
-- **Fast AI-assisted building:** Cursor or Claude Code - rapid iteration with AI suggestions
-- **Zero setup:** Replit Agent or Bolt - browser-based, no local install needed
+- **Primary:** Claude Code — autonomous loop with quality hooks
+- **Alternative:** VS Code + GitHub Copilot, Cursor
+- **CI:** GitHub Actions (Omar Gate workflow)
 
-**Pro tip:** With a well-structured spec, even smaller models can build your project correctly. You don't need the most expensive model when the spec does the heavy lifting.
-
-## 2. REPOSITORY SETUP
+## 2. REPOSITORY SETUP (MONOREPO)
 ```bash
-mkdir my-project
-cd my-project
+mkdir -p omarbit/{apps/web,apps/api,workers,infra,.github/workflows,.claude/hooks,docs}
+cd omarbit
 git init
-npm create vite@latest . -- --template react-ts
+
+# Root package.json with workspaces
+npm init -y
+npx json -I -f package.json -e 'this.workspaces=["apps/web"]'
+npx json -I -f package.json -e 'this.engines={"node":">=20"}'
+echo 'engine-strict=true' > .npmrc
+echo 'ignore-scripts=true' >> .npmrc
+
+# Frontend: Next.js 15 (App Router) + TypeScript + Tailwind
+cd apps/web
+npx create-next-app@latest . --typescript --tailwind --app --eslint --no-src-dir --import-alias "@/*"
+cd ../..
+
+# Backend: Python 3.12 + FastAPI
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install pip==24.3.1
+# Create requirements.in, then:
+pip-compile --generate-hashes -o apps/api/requirements-locked.txt apps/api/requirements.in
+pip-compile --generate-hashes -o apps/api/requirements-dev-locked.txt apps/api/requirements-dev.in
+
+# Infrastructure
+docker compose -f infra/docker-compose.yml up -d
+```
+
+### Run Commands (monorepo-specific)
+```bash
+# Start infrastructure
+docker compose -f infra/docker-compose.yml up -d
+
+# Start API (dev)
+source .venv/bin/activate
+uvicorn apps.api.main:app --reload --host 0.0.0.0 --port 8000
+
+# Start Web (dev)
+npm run -w apps/web dev
+
+# Run all quality gates
+npm run -w apps/web typecheck
+npm run -w apps/web lint
+npm run -w apps/web test
+npm run -w apps/web build
+source .venv/bin/activate
+ruff check .
+python -m pytest -q
+
+# Run migrations
+psql "$DATABASE_URL" -f apps/api/migrations/001_baseline.sql
 ```
 
 ## 2.6 SPEC CROSS-REFERENCE
-- Architecture/scope source: spec sections `PROJECT OVERVIEW` and `ARCHITECTURE & SCOPE`.
-- Risk/rollback source: spec sections `RISK & MITIGATION` and `ROLLOUT & ROLLBACK` (or `ROLLBACK`).
-- Keep this guide focused on commands/runbook steps; do not duplicate full spec context here.
+- Architecture/scope/schema: spec sections 1, 3, 4 (what/why).
+- Security/moderation/thought-stream: spec sections 5, 5.1, 5.2.
+- Risk/rollback: spec section 2 (per-phase rollback commands).
+- Anti-pattern guards: spec ANTI-PATTERN GUARDS table.
+- This guide = commands/runbook only. Do not duplicate spec context here.
 
 ## 3. PUSH TO GITHUB
 ```bash
@@ -38,62 +87,23 @@ git push -u origin main
 - Add `OPENAI_API_KEY` to GitHub Actions secrets.
 - Omar Gate reviews every PR before merge.
 
-## 4.5 INFRASTRUCTURE FILES (COPY-PASTE READY)
+## 4.5 INFRASTRUCTURE FILES
+Canonical files in the repo (do not duplicate here):
+- `infra/docker-compose.yml` — Postgres 16, Redis 7, MinIO (all digest-pinned, healthchecked, localhost-bound)
+- `.env.example` — empty placeholders, no secrets
+- `.claude/hooks/quality-gate.sh` — monorepo-specific gate script
 
-### docker-compose.yml
-```yaml
-services:
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ':9001'
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - minio-data:/data
-
-volumes:
-  minio-data:
-```
-
-### .env.example
-```bash
-# Application
-NODE_ENV=development
-APP_PORT=3000
-API_PORT=8000
-
-# Object Storage (MinIO for local, S3 for prod)
-S3_ENDPOINT=http://localhost:9000
-S3_ACCESS_KEY=minioadmin
-S3_SECRET_KEY=minioadmin
-S3_BUCKET=app-uploads
-
-# Auth
-JWT_SECRET=change-me-in-production
-
-# External APIs (add as needed)
-# OPENAI_API_KEY=sk-...
-# PAYMENT_API_KEY=...
-# SENDGRID_API_KEY=...
-```
-
-### .claude/hooks/quality-gate.sh
+### Quality gate commands (what the hook runs):
 ```bash
 set -euo pipefail
-if [ -f package.json ]; then
-  npm run typecheck --if-present
-  npm run lint --if-present
-  npm test --if-present
-  npm run build --if-present
-fi
-if [ -f pyproject.toml ] || [ -f requirements.txt ]; then
-  ruff check .
-  python -m pytest -q
-fi
+npm run -w apps/web typecheck
+npm run -w apps/web lint
+npm run -w apps/web test
+npm run -w apps/web build
+source .venv/bin/activate
+pip install --require-hashes -r apps/api/requirements-locked.txt
+ruff check .
+python -m pytest -q
 ```
 
 ## 5. PHASE 0: FOUNDATION
@@ -105,13 +115,18 @@ fi
 - Keep one PR per phase and verify each phase before proceeding.
 - Suggested initial dynamic phase plan:
 
-### Phase 0
-- Baseline architecture, contracts, CI quality gates, and Omar Gate wiring.
-### Phase 1
-- Implement: Core implementation.
-### Phase 2
-- Hardening: observability, performance checks, security review, and rollout readiness.
-- Add extra phases when dependency chains or risk profile require narrower increments.
+### Phase 0 — Foundation & Contracts
+Monorepo scaffold, Docker compose, envs, lint/test/typecheck, OpenAPI skeleton, DB migrations baseline.
+### Phase 1 — Auth + AI Registry + Feature Flags
+GitHub OAuth sign-in, AI registration CRUD, DB-backed feature flags + admin API, Coming Soon placeholders.
+### Phase 2 — Match Engine + Stockfish Referee + SSE Core
+Match lifecycle state machine, Stockfish legality validation, SSE stream, idempotent match APIs.
+### Phase 3 — BYOAI Provider Integrations + Quota/Forfeit
+Claude/GPT/Grok/Gemini adapters, timeout/retry/backoff, forfeit on unrecoverable errors.
+### Phase 4 — Leaderboard + Replay + IndexedDB Cache
+Transactional ELO updates, replay APIs, IndexedDB sync/cache.
+### Phase 5 — Round-Robin Scheduler + Progressive Delivery + Hardening
+Tournament scheduler, canary flag rollout, full observability, Omar Gate strict mode.
 
 ```bash
 git checkout -b feature/phase-<n>-<scope>
@@ -140,21 +155,18 @@ git worktree add ../worktrees/phase-2 -b feature/phase-2 origin/main
   }
 }
 ```
-3. Example `.claude/hooks/quality-gate.sh`:
+3. Quality gate commands (monorepo-specific):
 ```bash
 set -euo pipefail
-if [ -f package.json ]; then
-  npm run typecheck --if-present
-  npm run lint --if-present
-  npm test --if-present
-  npm run build --if-present
-fi
-if [ -f pyproject.toml ] || [ -f requirements.txt ]; then
-  ruff check .
-  python -m pytest -q
-fi
+npm run -w apps/web typecheck
+npm run -w apps/web lint
+npm run -w apps/web test
+npm run -w apps/web build
+source .venv/bin/activate
+pip install --require-hashes -r apps/api/requirements-locked.txt
+ruff check .
+python -m pytest -q
 ```
-- No deterministic command hints were detected. Discover and lock the repo-native typecheck/lint/test/build commands before phase execution.
 4. Self-verification loop: if a gate fails, fix root cause and rerun gates; do not mark the phase done early.
 5. If your agent runtime lacks hooks, enforce the same commands as required CI checks and block merges until green.
 6. Add latency/benchmark checks to this hook when acceptance criteria define numeric performance targets.
@@ -178,6 +190,12 @@ fi
 domain_rules: |
   - Reject changes that remove `requestId` from non-2xx error envelopes.
   - Require explicit rollback path and feature-flag gating for risky releases.
+  - No provider API keys in client bundle (apps/web). All provider calls via apps/api only.
+  - No move commit (match_moves INSERT) without prior Stockfish legality validation.
+  - No ELO rating update outside a DB transaction that also updates match status.
+  - No mutation endpoint (POST/PATCH/DELETE) without Idempotency-Key middleware.
+  - No raw chain-of-thought storage or transmission. Summary-only (max 500 chars).
+  - No AI chat line broadcast without moderation filter pass.
 ```
 
 ## PLATFORM SETUP & AI MEMORY GUIDE
@@ -192,6 +210,6 @@ Starter block:
 
 ```
 Project: OmarBit Sentinel Chess Arena MVP | Spec: 31a72b526381f229fd006d3748b239cbb5afd6ba3705518cd182f4be9fae9e5c
-Stack: your tech stack
+Stack: Next.js 15 (App Router) + TypeScript + Tailwind | FastAPI (Python 3.12) + Celery + Redis | PostgreSQL 16
 Follow the spec exactly. Do not guess. Stop and ask when uncertain.
 ```
