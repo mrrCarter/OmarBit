@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 
 import httpx
@@ -13,6 +14,15 @@ _CONNECT_TIMEOUT = 3.0
 _READ_TIMEOUT = 20.0
 _MAX_RETRIES = 2
 _BACKOFF_SCHEDULE = (0.5, 1.0)
+
+# Pattern to strip API keys from URLs (e.g., Gemini ?key=...)
+_KEY_REDACT_RE = re.compile(r"(key=)[^&\s]+", re.IGNORECASE)
+
+
+def _sanitize_error(exc: Exception) -> str:
+    """Strip potential API keys from exception messages."""
+    msg = str(exc)
+    return _KEY_REDACT_RE.sub(r"\1[REDACTED]", msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,7 +117,7 @@ class BaseProvider:
                     self.provider_name,
                     attempt + 1,
                     _MAX_RETRIES + 1,
-                    exc,
+                    _sanitize_error(exc),
                 )
             except httpx.HTTPStatusError as exc:
                 last_err = exc
@@ -128,5 +138,6 @@ class BaseProvider:
                 await asyncio.sleep(backoff)
 
         raise ProviderUnavailableError(
-            f"{self.provider_name} unavailable after {_MAX_RETRIES + 1} attempts: {last_err}"
+            f"{self.provider_name} unavailable after {_MAX_RETRIES + 1} attempts: "
+            f"{_sanitize_error(last_err) if last_err else 'unknown error'}"
         )

@@ -30,7 +30,7 @@ StyleType = Literal["aggressive", "positional", "balanced", "chaotic", "defensiv
 class AIProfileCreate(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=100)
     provider: ProviderType
-    api_key: str = Field(..., min_length=1)
+    api_key: str = Field(..., min_length=1, max_length=256)
     style: StyleType = "balanced"
 
 

@@ -13,6 +13,7 @@ from providers.base import (
     MoveResponse,
     ProviderUnavailableError,
     QuotaExhaustedError,
+    _sanitize_error,
 )
 from providers.claude_provider import ClaudeProvider
 from providers.gemini_provider import GeminiProvider
@@ -174,8 +175,9 @@ def test_claude_build_request():
 
 def test_gpt_build_request():
     provider = GPTProvider()
+    fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
     url, headers, body = provider._build_request(
-        "sk-test", "fen", ["e4"], "aggressive", {"ply": 0},
+        "sk-test", fen, ["e4"], "aggressive", {"ply": 0},
     )
     assert "openai" in url
     assert "Bearer sk-test" in headers["Authorization"]
@@ -184,8 +186,9 @@ def test_gpt_build_request():
 
 def test_gemini_build_request_includes_key_in_url():
     provider = GeminiProvider()
+    fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
     url, _headers, _body = provider._build_request(
-        "AIza-test", "fen", ["e4"], "balanced", {"ply": 0},
+        "AIza-test", fen, ["e4"], "balanced", {"ply": 0},
     )
     assert "key=AIza-test" in url
 
@@ -244,3 +247,29 @@ async def test_quota_exhausted_raises_immediately():
     """429 should raise QuotaExhaustedError without retrying."""
     assert issubclass(QuotaExhaustedError, Exception)
     assert issubclass(ProviderUnavailableError, Exception)
+
+
+# --- Sanitize error (P0 fix: API key redaction) ---
+
+
+def test_sanitize_error_redacts_gemini_key():
+    exc = Exception(
+        "Connection error for https://generativelanguage.googleapis.com/"
+        "v1beta/models/gemini-2.0-flash:generateContent?key=AIzaSyABCDEF12345"
+    )
+    result = _sanitize_error(exc)
+    assert "AIzaSyABCDEF12345" not in result
+    assert "key=[REDACTED]" in result
+
+
+def test_sanitize_error_no_key_unchanged():
+    exc = Exception("Connection refused to api.openai.com")
+    result = _sanitize_error(exc)
+    assert result == "Connection refused to api.openai.com"
+
+
+def test_sanitize_error_multiple_keys():
+    exc = Exception("key=SECRET1&other=val&key=SECRET2")
+    result = _sanitize_error(exc)
+    assert "SECRET1" not in result
+    assert "SECRET2" not in result

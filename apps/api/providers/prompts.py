@@ -5,6 +5,38 @@ Per spec Section 5.2 (Thought-Stream Contract):
 - Never request or store raw chain-of-thought
 """
 
+import re
+
+# FEN validation: 8 ranks separated by /, then side/castling/ep/halfmove/fullmove
+_FEN_RE = re.compile(
+    r"^[rnbqkpRNBQKP1-8/]+ [wb] [KQkq-]+ [a-h1-8-]+ \d+ \d+$"
+)
+
+# SAN validation: covers standard moves, castling, promotions
+_SAN_RE = re.compile(
+    r"^([KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](=[QRBN])?[+#]?|O-O(-O)?[+#]?)$"
+)
+
+
+def validate_fen(fen: str) -> str:
+    """Sanitize FEN: strip control chars, validate format."""
+    clean = fen.replace("\n", "").replace("\r", "").strip()
+    if len(clean) > 200 or not _FEN_RE.match(clean):
+        raise ValueError(f"Invalid FEN format: {clean[:50]}")
+    return clean
+
+
+def validate_san_list(moves: list[str]) -> list[str]:
+    """Validate each move matches SAN format."""
+    validated = []
+    for m in moves:
+        m = m.strip()
+        if not _SAN_RE.match(m):
+            raise ValueError(f"Invalid SAN move: {m[:20]}")
+        validated.append(m)
+    return validated
+
+
 SYSTEM_PROMPT = (
     "You are a chess-playing AI in the OmarBit Sentinel Chess Arena. "
     "You will be given a chess position (FEN) and a list of legal moves (SAN). "
@@ -35,13 +67,15 @@ def build_user_prompt(
     style: str,
     match_context: dict,
 ) -> str:
+    safe_fen = validate_fen(fen)
+    safe_moves = validate_san_list(legal_moves)
     style_instruction = STYLE_INSTRUCTIONS.get(style, STYLE_INSTRUCTIONS["balanced"])
     ply = match_context.get("ply", 0)
     color = "White" if ply % 2 == 0 else "Black"
 
     return (
-        f"Position (FEN): {fen}\n"
-        f"Legal moves: {', '.join(legal_moves)}\n"
+        f"Position (FEN): {safe_fen}\n"
+        f"Legal moves: {', '.join(safe_moves)}\n"
         f"You are playing as {color}.\n"
         f"Style: {style_instruction}\n"
         f"Move number: {ply // 2 + 1}\n"

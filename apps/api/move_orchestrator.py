@@ -100,7 +100,7 @@ async def orchestrate_move(
             logger.error("Provider error %s: %s", provider_name, exc)
             return MoveResult(
                 forfeit=True,
-                forfeit_reason=f"Provider error ({provider_name}): {exc}",
+                forfeit_reason=f"AI engine error ({provider_name})",
             )
 
         # Validate the move is in the legal moves list (quick pre-check)
